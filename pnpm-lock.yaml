@@ -189,6 +189,18 @@ importers:
         specifier: ^0.4.1
         version: 0.4.1(zod-to-json-schema@3.25.1(zod@4.3.5))(zod@4.3.5)
 
+  packages/schedule:
+    dependencies:
+      '@memohome/db':
+        specifier: workspace:*
+        version: link:../db
+      '@memohome/shared':
+        specifier: workspace:*
+        version: link:../shared
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@cloudflare/workers-types@4.20260109.0)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.5)(pg@8.16.3)(sqlite3@5.1.7)
+
   packages/shared: {}
 
   packages/ui:

@@ -1,7 +1,7 @@
 import Elysia from 'elysia'
 import { authMiddleware } from '../../middlewares/auth'
 import { AgentStreamModel } from './model'
-import { createAgentStream } from './service'
+import { createAgent } from './service'
 import { getChatModel, getEmbeddingModel, getSummaryModel } from '../model/service'
 import { getSettings } from '../settings/service'
 import { ChatModel, EmbeddingModel } from '@memohome/shared'
@@ -38,7 +38,7 @@ export const agentModule = new Elysia({
         ?? 'Same as user input'
 
       // Create agent
-      const agent = await createAgentStream({
+      const agent = await createAgent({
         userId: user.userId,
         chatModel: chatModel.model as ChatModel,
         embeddingModel: embeddingModel.model as EmbeddingModel,

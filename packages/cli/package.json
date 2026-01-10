@@ -1,0 +1,16 @@
+{
+  "name": "@memohome/cli",
+  "version": "1.0.0",
+  "description": "",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@memohome/api": "workspace:*",
+    "@memohome/shared": "workspace:*"
+  },
+  "packageManager": "pnpm@10.27.0"
+}

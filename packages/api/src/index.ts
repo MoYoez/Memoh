@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { corsMiddleware, errorMiddleware } from './middlewares'
-import { agentModule, authModule, modelModule, settingsModule, userModule } from './modules'
+import { agentModule, authModule, modelModule, scheduleModule, settingsModule, userModule } from './modules'
 import { memoryModule } from './modules/memory'
 import openapi from '@elysiajs/openapi'
 
@@ -14,6 +14,7 @@ export const app = new Elysia()
   .use(agentModule)
   .use(memoryModule)
   .use(modelModule)
+  .use(scheduleModule)
   .use(settingsModule)
   .use(userModule)
   .listen(port)

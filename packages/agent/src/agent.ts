@@ -1,24 +1,33 @@
-import { streamText, ModelMessage, stepCountIs } from 'ai'
+import { streamText, generateText, ModelMessage, stepCountIs, UserModelMessage } from 'ai'
 import { AgentParams } from './types'
-import { system } from './prompts'
-import { getMemoryTools } from './tools'
+import { system, schedule as schedulePrompt } from './prompts'
+import { getMemoryTools, getScheduleTools } from './tools'
 import { createChatGateway } from '@memohome/ai-gateway'
+import { Schedule } from '@memohome/shared'
 
 export const createAgent = (params: AgentParams) => {
   const messages: ModelMessage[] = []
 
   const gateway = createChatGateway(params.model)
 
+  const maxContextLoadTime = params.maxContextLoadTime ?? 60
+  const language = params.language ?? 'Same as user input'
+
   const getTools = async () => {
     return {
       ...getMemoryTools({
         searchMemory: params.onSearchMemory ?? (() => Promise.resolve([]))
       }),
+      ...getScheduleTools({
+        onGetSchedules: params.onGetSchedules ?? (() => Promise.resolve([])),
+        onRemoveSchedule: params.onRemoveSchedule ?? (() => Promise.resolve()),
+        onSchedule: params.onSchedule ?? (() => Promise.resolve()),
+      }),
     }
   }
 
   const loadContext = async () => {
-    const from = new Date(Date.now() - params.maxContextLoadTime * 60 * 1000)
+    const from = new Date(Date.now() - maxContextLoadTime * 60 * 1000)
     const to = new Date()
     const memory = await params.onReadMemory?.(from, to) ?? []
     const context = memory.flatMap(m => m.messages)
@@ -28,10 +37,37 @@ export const createAgent = (params: AgentParams) => {
   const getSystemPrompt = () => {
     return system({
       date: new Date(),
-      language: params.language ?? 'Same as user input',
+      language,
       locale: params.locale,
-      maxContextLoadTime: params.maxContextLoadTime,
+      maxContextLoadTime,
     })
+  }
+
+  const getSchedulePrompt = (schedule: Schedule) => {
+    return schedulePrompt({
+      schedule,
+      locale: params.locale,
+      date: new Date(),
+    })
+  }
+
+  async function askDirectly(input: string) {
+    await loadContext()
+    const user = {
+      role: 'user',
+      content: input,
+    } as UserModelMessage
+    messages.push(user)
+    const { response } = await generateText({
+      model: gateway,
+      system: getSystemPrompt(),
+      messages,
+      tools: await getTools(),
+    })
+    await params.onFinish?.([
+      user as ModelMessage,
+      ...response.messages,
+    ])
   }
 
   async function* ask(input: string) {
@@ -39,7 +75,7 @@ export const createAgent = (params: AgentParams) => {
     const user = {
       role: 'user',
       content: input,
-    }
+    } as UserModelMessage
     messages.push(user)
     const { fullStream, response } = streamText({
       model: gateway,
@@ -63,9 +99,17 @@ export const createAgent = (params: AgentParams) => {
     ])
   }
 
+  const triggerSchedule = async (schedule: Schedule) => {
+    const prompt = getSchedulePrompt(schedule)
+    await askDirectly(prompt)
+  }
+
   return {
     ask,
+    askDirectly,
     loadContext,
     getSystemPrompt,
+    getSchedulePrompt,
+    triggerSchedule,
   }
 }

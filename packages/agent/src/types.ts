@@ -1,5 +1,5 @@
 import type { MemoryUnit } from '@memohome/memory'
-import { ChatModel } from '@memohome/shared'
+import { ChatModel, Schedule } from '@memohome/shared'
 import { ModelMessage } from 'ai'
 
 export interface AgentParams {
@@ -8,7 +8,7 @@ export interface AgentParams {
   /**
    * Unit: minutes
    */
-  maxContextLoadTime: number
+  maxContextLoadTime?: number
 
   locale?: Intl.LocalesArgument
 
@@ -21,6 +21,12 @@ export interface AgentParams {
   onReadMemory?: (from: Date, to: Date) => Promise<MemoryUnit[]>
 
   onSearchMemory?: (query: string) => Promise<object[]>
+
+  onSchedule?: (schedule: Schedule) => Promise<void>
+
+  onGetSchedules?: () => Promise<Schedule[]>
+
+  onRemoveSchedule?: (id: string) => Promise<void>
 
   onFinish?: (messages: ModelMessage[]) => Promise<void>
 
