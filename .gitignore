@@ -93,3 +93,4 @@ docs/docs/.vitepress/cache
 .pnpm-store
 
 dump.rdb
+memory.db
