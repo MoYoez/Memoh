@@ -1,0 +1,20 @@
+{
+  "name": "@memoh/container",
+  "version": "1.0.0",
+  "description": "Containerd-based container management utilities",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "execa": "^9.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@10.27.0"
+}
