@@ -16,20 +16,8 @@ import {
 import DataTable from '@/components/DataTable/index.vue'
 import request from '@/utils/request'
 import { type ColumnDef } from '@tanstack/vue-table'
+import {type  ModelTable  as ModelType} from '@memoh/shared'
 
-
-interface ModelType {
-  apiKey: string,
-  baseUrl: string,
-  clientType: 'OpenAI' | 'Anthropic' | 'Google',
-  modelId: string,
-  name: string,
-  type: 'chat' | 'embedding',
-  id: string,
-  defaultChatModel: boolean,
-  defaultEmbeddingModel: boolean,
-  defaultSummaryModel: boolean
-}
 
 const openDialogModel = ref(false)
 const editModelInfo = ref<ModelType & { id: string } | null>(null)
@@ -85,22 +73,23 @@ const renderCheckDefault = () => {
       accessorKey: `${modelSetting.key}`,
       header: () => h('div', { class: 'text-left' }, modelSetting.title),
       cell({ row }) {
-        return h(Checkbox, {
-          state: row.original[modelSetting.type as 'defaultChatModel' | 'defaultSummaryModel' | 'defaultEmbeddingModel'],
-          disabled: row.original[modelSetting.type as 'defaultChatModel' | 'defaultSummaryModel' | 'defaultEmbeddingModel'] ? true : false,
+        const type = modelSetting.type as 'defaultChatModel' | 'defaultSummaryModel' | 'defaultEmbeddingModel'
+        return row.original.type === modelSetting.key ? h(Checkbox, {
+          state: row.original[type],
+          disabled: row.original[type] ? true : false,
           'onUpdate:modelValue'(val) {
-            row.original[modelSetting.type as 'defaultChatModel' | 'defaultSummaryModel' | 'defaultEmbeddingModel'] = val as boolean
+            row.original[type] = val as boolean
             setDefaultModel({
               id: row.original.id,
               type: modelSetting.key
             })
           }
-        })
+        }) : h('div')
       }
     } as ColumnDef<ModelType>
   ))]
 }
-const checkDefaultModel=ref(renderCheckDefault())
+const checkDefaultModel = ref(renderCheckDefault())
 
 const columns: ComputedRef<ColumnDef<ModelType>[]> = computed(() => [
   {
@@ -131,7 +120,7 @@ const columns: ComputedRef<ColumnDef<ModelType>[]> = computed(() => [
     header: () => h('div', { class: 'text-left' }, 'Type'),
   },
 
-  
+
   ...checkDefaultModel.value
   ,
   {
@@ -171,13 +160,13 @@ const { data: modelData } = useQuery({
       }
 
     }))
-   
+
     return fetchModeData
   }
 })
 
 watch(modelData, () => {
-  checkDefaultModel.value=renderCheckDefault()
+  checkDefaultModel.value = renderCheckDefault()
 })
 
 
@@ -202,7 +191,7 @@ const pagination = computed(() => {
         :data="displayFormat"
       />
     </div>
-    <div class="flex flex-col mt-4">
+    <!-- <div class="flex flex-col mt-4">
       <Pagination
         v-slot="{ page }"
         :total="pagination.value?.total ?? 0"
@@ -233,9 +222,9 @@ const pagination = computed(() => {
             </PaginationEllipsis>
           </template>
 
-          <PaginationNext />
-        </PaginationContent>
-      </Pagination>
-    </div>
+<PaginationNext />
+</PaginationContent>
+</Pagination>
+</div> -->
   </div>
 </template>

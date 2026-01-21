@@ -63,3 +63,18 @@ export interface ChatModel extends BaseModel {
 }
 
 export type Model = EmbeddingModel | ChatModel
+
+
+// 表格当中model的类型
+export interface ModelTable {
+  apiKey: string,
+  baseUrl: string,
+  clientType: 'OpenAI' | 'Anthropic' | 'Google',
+  modelId: string,
+  name: string,
+  type: 'chat' | 'embedding',
+  id: string,
+  defaultChatModel: boolean,
+  defaultEmbeddingModel: boolean,
+  defaultSummaryModel: boolean
+}
