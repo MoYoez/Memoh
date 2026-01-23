@@ -41,6 +41,19 @@ type LifecycleEvent struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type Model struct {
+	ID         pgtype.UUID        `json:"id"`
+	ModelID    string             `json:"model_id"`
+	Name       pgtype.Text        `json:"name"`
+	BaseUrl    string             `json:"base_url"`
+	ApiKey     string             `json:"api_key"`
+	ClientType string             `json:"client_type"`
+	Dimensions pgtype.Int4        `json:"dimensions"`
+	Type       string             `json:"type"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Snapshot struct {
 	ID               string             `json:"id"`
 	ContainerID      string             `json:"container_id"`

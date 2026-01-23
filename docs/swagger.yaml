@@ -1,4 +1,3 @@
-basePath: /
 definitions:
   handlers.ApplyPatchRequest:
     properties:
@@ -203,11 +202,81 @@ definitions:
       memory_id:
         type: string
     type: object
+  models.AddRequest:
+    properties:
+      api_key:
+        type: string
+      base_url:
+        type: string
+      client_type:
+        $ref: '#/definitions/models.ClientType'
+      dimensions:
+        type: integer
+      model_id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+    type: object
+  models.AddResponse:
+    properties:
+      id:
+        type: string
+      model_id:
+        type: string
+    type: object
+  models.ClientType:
+    enum:
+    - openai
+    - anthropic
+    - google
+    type: string
+    x-enum-varnames:
+    - ClientTypeOpenAI
+    - ClientTypeAnthropic
+    - ClientTypeGoogle
+  models.CountResponse:
+    properties:
+      count:
+        type: integer
+    type: object
+  models.GetResponse:
+    properties:
+      api_key:
+        type: string
+      base_url:
+        type: string
+      client_type:
+        $ref: '#/definitions/models.ClientType'
+      dimensions:
+        type: integer
+      model_id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+    type: object
+  models.UpdateRequest:
+    properties:
+      api_key:
+        type: string
+      base_url:
+        type: string
+      client_type:
+        $ref: '#/definitions/models.ClientType'
+      dimensions:
+        type: integer
+      model_id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+    type: object
 info:
   contact: {}
-  description: User-scoped filesystem API for containerd-backed data.
-  title: Memoh Go API
-  version: "1.0"
 paths:
   /auth/login:
     post:
@@ -599,6 +668,262 @@ paths:
       summary: Update memory
       tags:
       - memory
-schemes:
-- http
+  /models:
+    get:
+      description: Get a list of all configured models, optionally filtered by type
+        or client type
+      parameters:
+      - description: Model type (chat, embedding)
+        in: query
+        name: type
+        type: string
+      - description: Client type (openai, anthropic, google)
+        in: query
+        name: client_type
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.GetResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List all models
+      tags:
+      - models
+    post:
+      description: Create a new model configuration
+      parameters:
+      - description: Model configuration
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.AddResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create a new model
+      tags:
+      - models
+  /models/{id}:
+    delete:
+      description: Delete a model configuration by its internal UUID
+      parameters:
+      - description: Model internal ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete model by internal ID
+      tags:
+      - models
+    get:
+      description: Get a model configuration by its internal UUID
+      parameters:
+      - description: Model internal ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get model by internal ID
+      tags:
+      - models
+    put:
+      description: Update a model configuration by its internal UUID
+      parameters:
+      - description: Model internal ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated model configuration
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update model by internal ID
+      tags:
+      - models
+  /models/count:
+    get:
+      description: Get the total count of models, optionally filtered by type
+      parameters:
+      - description: Model type (chat, embedding)
+        in: query
+        name: type
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CountResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get model count
+      tags:
+      - models
+  /models/model/{modelId}:
+    delete:
+      description: Delete a model configuration by its model_id field (e.g., gpt-4)
+      parameters:
+      - description: Model ID (e.g., gpt-4)
+        in: path
+        name: modelId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete model by model ID
+      tags:
+      - models
+    get:
+      description: Get a model configuration by its model_id field (e.g., gpt-4)
+      parameters:
+      - description: Model ID (e.g., gpt-4)
+        in: path
+        name: modelId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get model by model ID
+      tags:
+      - models
+    put:
+      description: Update a model configuration by its model_id field (e.g., gpt-4)
+      parameters:
+      - description: Model ID (e.g., gpt-4)
+        in: path
+        name: modelId
+        required: true
+        type: string
+      - description: Updated model configuration
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update model by model ID
+      tags:
+      - models
 swagger: "2.0"

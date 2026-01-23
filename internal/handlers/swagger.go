@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-//go:generate go run github.com/swaggo/swag/cmd/swag@latest init -g ../../cmd/agent/docs.go -o ../../docs --parseDependency --parseInternal
+//go:generate go run github.com/swaggo/swag/cmd/swag@latest init -g swagger.go -o ../../docs --parseDependency --parseInternal
 
 var (
 	swaggerSpec []byte

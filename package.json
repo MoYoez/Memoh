@@ -37,7 +37,8 @@
     "vue-eslint-parser": "^10.2.0"
   },
   "dependencies": {
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "drizzle-kit": "^0.31.8"
   },
   "pnpm": {
     "peerDependencyRules": {

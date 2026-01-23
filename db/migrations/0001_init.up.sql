@@ -55,6 +55,23 @@ CREATE TABLE IF NOT EXISTS snapshots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS models (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_id TEXT NOT NULL,
+  name TEXT,
+  base_url TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  client_type TEXT NOT NULL,
+  dimensions INTEGER,
+  type TEXT NOT NULL DEFAULT 'chat',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT models_model_id_unique UNIQUE (model_id),
+  CONSTRAINT models_type_check CHECK (type IN ('chat', 'embedding')),
+  CONSTRAINT models_client_type_check CHECK (client_type IN ('openai', 'anthropic', 'google')),
+  CONSTRAINT models_dimensions_check CHECK (type != 'embedding' OR dimensions IS NOT NULL)
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshots_container_id ON snapshots(container_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_parent_id ON snapshots(parent_snapshot_id);
 
