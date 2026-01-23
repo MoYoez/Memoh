@@ -217,7 +217,7 @@
               </Button>
             </DialogClose>
             <Button type="submit">
-              添加Model
+              添加MCP
             </Button>
           </DialogFooter>
         </form>
