@@ -27,6 +27,7 @@ const (
 
 type Config struct {
 	Server     ServerConfig     `toml:"server"`
+	Admin      AdminConfig      `toml:"admin"`
 	Auth       AuthConfig       `toml:"auth"`
 	Containerd ContainerdConfig `toml:"containerd"`
 	MCP        MCPConfig        `toml:"mcp"`
@@ -37,6 +38,12 @@ type Config struct {
 
 type ServerConfig struct {
 	Addr string `toml:"addr"`
+}
+
+type AdminConfig struct {
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+	Email    string `toml:"email"`
 }
 
 type AuthConfig struct {
@@ -93,6 +100,11 @@ func Load(path string) (Config, error) {
 	cfg := Config{
 		Server: ServerConfig{
 			Addr: DefaultHTTPAddr,
+		},
+		Admin: AdminConfig{
+			Username: "admin",
+			Password: "change-your-password-here",
+			Email:    "you@example.com",
 		},
 		Auth: AuthConfig{
 			JWTExpiresIn: DefaultJWTExpiresIn,

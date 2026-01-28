@@ -22,6 +22,9 @@ import (
 	"github.com/memohai/memoh/internal/providers"
 	"github.com/memohai/memoh/internal/settings"
 	"github.com/memohai/memoh/internal/server"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -70,6 +73,10 @@ func main() {
 	manager.WithDB(conn)
 	queries := dbsqlc.New(conn)
 	modelsService := models.NewService(queries)
+
+	if err := ensureAdminUser(ctx, queries, cfg); err != nil {
+		log.Fatalf("ensure admin user: %v", err)
+	}
 
 	authHandler := handlers.NewAuthHandler(conn, cfg.Auth.JWTSecret, jwtExpiresIn)
 
@@ -160,6 +167,57 @@ func main() {
 	if err := srv.Start(); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
+}
+
+func ensureAdminUser(ctx context.Context, queries *dbsqlc.Queries, cfg config.Config) error {
+	if queries == nil {
+		return fmt.Errorf("db queries not configured")
+	}
+	count, err := queries.CountUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	username := strings.TrimSpace(cfg.Admin.Username)
+	password := strings.TrimSpace(cfg.Admin.Password)
+	email := strings.TrimSpace(cfg.Admin.Email)
+	if username == "" || password == "" {
+		return fmt.Errorf("admin username/password required in config.toml")
+	}
+	if password == "change-your-password-here" {
+		log.Printf("WARNING: admin password uses default placeholder; please update config.toml")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	emailValue := pgtype.Text{Valid: false}
+	if email != "" {
+		emailValue = pgtype.Text{String: email, Valid: true}
+	}
+	displayName := pgtype.Text{String: username, Valid: true}
+	dataRoot := pgtype.Text{String: cfg.MCP.DataRoot, Valid: cfg.MCP.DataRoot != ""}
+
+	_, err = queries.CreateUser(ctx, dbsqlc.CreateUserParams{
+		Username:     username,
+		Email:        emailValue,
+		PasswordHash: string(hashed),
+		Role:         "admin",
+		DisplayName:  displayName,
+		AvatarUrl:    pgtype.Text{Valid: false},
+		IsActive:     true,
+		DataRoot:     dataRoot,
+	})
+	if err != nil {
+		return err
+	}
+	log.Printf("Admin user created: %s", username)
+	return nil
 }
 
 type lazyLLMClient struct {

@@ -37,3 +37,6 @@ RETURNING *;
 
 -- name: GetUserByUsername :one
 SELECT * FROM users WHERE username = sqlc.arg(username);
+
+-- name: CountUsers :one
+SELECT COUNT(*)::bigint AS count FROM users;

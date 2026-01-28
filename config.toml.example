@@ -3,6 +3,12 @@
 # HTTP listen address
 addr = ":8080"
 
+## Admin
+[admin]
+username = "admin"
+password = "change-your-password-here"
+email = "you@example.com"
+
 ## Auth configuration
 [auth]
 jwt_secret = "your-jwt-secret-key-change-in-production-use-long-random-string"
