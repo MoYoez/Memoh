@@ -7,6 +7,10 @@ import { createPinia } from 'pinia'
 import i18n from './i18n'
 import { PiniaColada } from '@pinia/colada'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
+// @ts-ignore
+import 'markstream-vue/index.css'
+// @ts-ignore
+import 'katex/dist/katex.min.css'
 
 createApp(App)
   .use(createPinia().use(piniaPluginPersistedstate))

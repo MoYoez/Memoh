@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { reactive, watch,ref} from 'vue'
 import type { user, robot } from '@memoh/shared'
 import loadRobotChat from '@/utils/loadRobotChat'
+import str from '../../demo.md?raw'
 
 export const useChatList= defineStore('chatList', () => {
   const chatList = reactive<(((user | robot)))[]>([])
@@ -22,7 +23,7 @@ export const useChatList= defineStore('chatList', () => {
     // 模拟一下改变状态
     setTimeout(() => {
       if (generateItem) {
-        loadRobotChat(generateItem, '对不起,该问题超出我的知识范围')
+        loadRobotChat(generateItem, str)
       }
     },3000)
   }, {

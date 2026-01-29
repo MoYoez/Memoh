@@ -6,7 +6,7 @@
         :path="mdiRobotOutline"
       />
     </div>
-    <section>
+    <section class="w-[90%]">
       <sup class="font-semibold">
         {{ robotSay.type }}
       </sup>
@@ -19,7 +19,10 @@
           >
         </template>
         <template v-else>
-          {{ robotSay.description }}
+          <MarkdownRender
+            :content="robotSay.description"
+            custom-id="chat-answer"
+          />
         </template>
       </p>
     </section>
@@ -29,8 +32,10 @@
 <script setup lang="ts">
 import SvgIcon from '@jamescoyle/vue-icon'
 import { mdiRobotOutline } from '@mdi/js'
-import type {robot}  from '@memoh/shared'
-
+import type { robot } from '@memoh/shared'
+import MarkdownRender,{enableKatex,enableMermaid} from 'markstream-vue'
+enableKatex()
+enableMermaid()
 const {robotSay}=defineProps<{
   robotSay: robot
 }>()
