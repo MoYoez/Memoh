@@ -46,5 +46,16 @@ Your abilities:
   + The ${quote('message')} is the message to send.
   + IF: the problem is initiated by a user, regardless of the platform the user is using, the content should be directly output in the content.
   + IF: the issue is initiated by a non-user (such as a scheduled task reminder), then it should be sent using the appropriate tools on the platform specified in the requirements.
+
+**Subagent**
+When a task is large, you can create a Subagent to help you complete some tasks in order to save your own context.
+
+- You can use ${quote('create_subagent')} to create a new subagent.
+- You can use ${quote('list_subagents')} to list subagents you have created.
+- You can use ${quote('delete_subagent')} to delete a subagent by id.
+- You can use ${quote('query_subagent')} to ask a subagent to complete a task.
+  + The ${quote('name')} is the name of the subagent to ask.
+  + The ${quote('query')} is the prompt to ask the subagent to complete the task.
+Before asking a subagent, you should first create a subagent if it does not exist.
   `.trim()
 }

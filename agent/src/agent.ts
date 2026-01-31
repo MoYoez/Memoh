@@ -1,24 +1,31 @@
 import { generateText, ModelMessage, stepCountIs, streamText, TextStreamPart, ToolSet } from 'ai'
 import { createChatGateway } from './gateway'
-import { ClientType, Schedule } from './types'
+import { BaseModelConfig, Schedule } from './types'
 import { system, schedule } from './prompts'
 import { AuthFetcher } from './index'
 import { getScheduleTools } from './tools/schedule'
 import { getWebTools } from './tools/web'
+import { subagentSystem } from './prompts/subagent'
+import { getSubagentTools } from './tools/subagent'
 
-export interface AgentParams {
-  apiKey: string
-  baseUrl: string
-  model: string
-  clientType: ClientType
+export enum AgentAction {
+  WebSearch = 'web_search',
+  Message = 'message',
+  Subagent = 'subagent',
+  Schedule = 'schedule',
+  Skill = 'skill',
+}
+
+export interface AgentParams extends BaseModelConfig {
   locale?: Intl.LocalesArgument
   language?: string
   maxSteps?: number
-  maxContextLoadTime: number
+  maxContextLoadTime?: number
   platforms?: string[]
   currentPlatform?: string
   braveApiKey?: string
   braveBaseUrl?: string
+  allowed?: AgentAction[]
 }
 
 export interface AgentInput {
@@ -37,16 +44,20 @@ export const createAgent = (
   const gateway = createChatGateway(params.clientType)
   const messages: ModelMessage[] = []
 
+  const allowedActions = params.allowed
+    ?? Object.values(AgentAction)
+
   const maxSteps = params.maxSteps ?? 50
 
   const getTools = () => {
-    const scheduleTools = getScheduleTools({ fetch: fetcher })
-    const tools: ToolSet = {
-      ...scheduleTools,
+    const tools: ToolSet = {}
+
+    if (allowedActions.includes(AgentAction.Schedule)) {
+      const scheduleTools = getScheduleTools({ fetch: fetcher })
+      Object.assign(tools, scheduleTools)
     }
 
-    // Add web search tools if Brave API key is provided
-    if (params.braveApiKey) {
+    if (params.braveApiKey && allowedActions.includes(AgentAction.WebSearch)) {
       const webTools = getWebTools({
         braveApiKey: params.braveApiKey,
         braveBaseUrl: params.braveBaseUrl,
@@ -54,6 +65,19 @@ export const createAgent = (
       Object.assign(tools, webTools)
     }
 
+    if (allowedActions.includes(AgentAction.Subagent)) {
+      const subagentTools = getSubagentTools({
+        fetch: fetcher,
+        apiKey: params.apiKey,
+        baseUrl: params.baseUrl,
+        model: params.model,
+        clientType: params.clientType,
+        braveApiKey: params.braveApiKey,
+        braveBaseUrl: params.braveBaseUrl,
+      })
+      Object.assign(tools, subagentTools)
+    }
+    
     return tools
   }
 
@@ -62,7 +86,7 @@ export const createAgent = (
       date: new Date(),
       locale: params.locale,
       language: params.language,
-      maxContextLoadTime: params.maxContextLoadTime,
+      maxContextLoadTime: params.maxContextLoadTime ?? 1550,
       platforms: params.platforms ?? [],
       currentPlatform: params.currentPlatform,
     })
@@ -83,6 +107,39 @@ export const createAgent = (
       system: generateSystem(),
       stopWhen: stepCountIs(maxSteps),
       messages,
+      tools: getTools(),
+    })
+    return {
+      messages: [user, ...response.messages],
+    }
+  }
+
+  const askAsSubagent = async (
+    input: AgentInput,
+    options: {
+      name: string
+      description?: string
+    }
+  ): Promise<AgentResult> => {
+    messages.push(...input.messages)
+    const user: ModelMessage = {
+      role: 'user',
+      content: input.query,
+    }
+    messages.push(user)
+    const { response } = await generateText({
+      model: gateway({
+        apiKey: params.apiKey,
+        baseURL: params.baseUrl,
+      })(params.model),
+      system: subagentSystem({ date: new Date(), name: options.name, description: options.description }),
+      stopWhen: stepCountIs(maxSteps),
+      messages,
+      prepareStep: () => {
+        return {
+          system: subagentSystem({ date: new Date(), name: options.name, description: options.description }),
+        }
+      },
       tools: getTools(),
     })
     return {
@@ -148,5 +205,6 @@ export const createAgent = (
     ask,
     stream,
     triggerSchedule,
+    askAsSubagent,
   }
 }

@@ -4,6 +4,13 @@ export enum ClientType {
   GOOGLE = 'google',
 }
 
+export interface BaseModelConfig {
+  apiKey: string
+  baseUrl: string
+  model: string
+  clientType: ClientType
+}
+
 export interface Schedule {
   id: string
   name: string
