@@ -2594,6 +2594,20 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "chat.AgentSkill": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "chat.ChatRequest": {
             "type": "object",
             "properties": {
@@ -2632,6 +2646,18 @@ const docTemplate = `{
                 },
                 "query": {
                     "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/chat.AgentSkill"
+                    }
+                },
+                "use_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2649,6 +2675,12 @@ const docTemplate = `{
                 },
                 "provider": {
                     "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2981,6 +3013,12 @@ const docTemplate = `{
                         "type": "object",
                         "additionalProperties": true
                     }
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -3006,6 +3044,12 @@ const docTemplate = `{
                     "items": {
                         "type": "object",
                         "additionalProperties": true
+                    }
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "timestamp": {

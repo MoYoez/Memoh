@@ -1,5 +1,6 @@
 import { time } from './shared'
 import { quote } from './utils'
+import { AgentSkill } from '../types'
 
 export interface SystemParams {
   date: Date
@@ -8,9 +9,20 @@ export interface SystemParams {
   maxContextLoadTime: number
   platforms: string[]
   currentPlatform?: string
+  skills: AgentSkill[]
+  enabledSkills: AgentSkill[]
 }
 
-export const system = ({ date, locale, language, maxContextLoadTime, platforms, currentPlatform }: SystemParams) => {
+export const skillPrompt = (skill: AgentSkill) => {
+  return `
+### ${skill.name}
+> ${skill.description}
+
+${skill.content}
+  `.trim()
+}
+
+export const system = ({ date, locale, language, maxContextLoadTime, platforms, currentPlatform, skills, enabledSkills }: SystemParams) => {
   return `
 ---
 ${time({ date, locale })}
@@ -57,5 +69,14 @@ When a task is large, you can create a Subagent to help you complete some tasks 
   + The ${quote('name')} is the name of the subagent to ask.
   + The ${quote('query')} is the prompt to ask the subagent to complete the task.
 Before asking a subagent, you should first create a subagent if it does not exist.
+
+**Skills**
+
+There are ${skills.length} skills available, you can use ${quote('use_skill')} to use a skill.
+${skills.map(skill => `- ${skill.name}: ${skill.description}`).join('\n')}
+
+**Enabled Skills**
+
+${enabledSkills.map(skill => skillPrompt(skill)).join('\n\n---\n\n')}
   `.trim()
 }

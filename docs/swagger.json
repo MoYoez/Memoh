@@ -2585,6 +2585,20 @@
         }
     },
     "definitions": {
+        "chat.AgentSkill": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "chat.ChatRequest": {
             "type": "object",
             "properties": {
@@ -2623,6 +2637,18 @@
                 },
                 "query": {
                     "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/chat.AgentSkill"
+                    }
+                },
+                "use_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2640,6 +2666,12 @@
                 },
                 "provider": {
                     "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2972,6 +3004,12 @@
                         "type": "object",
                         "additionalProperties": true
                     }
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -2997,6 +3035,12 @@
                     "items": {
                         "type": "object",
                         "additionalProperties": true
+                    }
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "timestamp": {

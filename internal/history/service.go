@@ -44,6 +44,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	}
 	row, err := s.queries.CreateHistory(ctx, sqlc.CreateHistoryParams{
 		Messages: payload,
+		Skills:   normalizeSkills(req.Skills),
 		Timestamp: pgtype.Timestamptz{
 			Time:  time.Now().UTC(),
 			Valid: true,
@@ -122,6 +123,7 @@ func toRecord(row sqlc.History) (Record, error) {
 	}
 	record := Record{
 		Messages: messages,
+		Skills:   normalizeSkills(row.Skills),
 	}
 	if row.Timestamp.Valid {
 		record.Timestamp = row.Timestamp.Time
@@ -139,6 +141,23 @@ func toRecord(row sqlc.History) (Record, error) {
 		}
 	}
 	return record, nil
+}
+
+func normalizeSkills(skills []string) []string {
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		trimmed := strings.TrimSpace(skill)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }
 
 func parseUUID(id string) (pgtype.UUID, error) {
