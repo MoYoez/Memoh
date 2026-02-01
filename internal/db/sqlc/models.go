@@ -8,6 +8,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ChannelConfig struct {
+	ID          pgtype.UUID        `json:"id"`
+	ChannelType string             `json:"channel_type"`
+	Config      []byte             `json:"config"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	IsGlobal    bool               `json:"is_global"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ChannelUserConfig struct {
+	ID          pgtype.UUID        `json:"id"`
+	ChannelType string             `json:"channel_type"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Config      []byte             `json:"config"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Container struct {
 	ID            pgtype.UUID        `json:"id"`
 	UserID        pgtype.UUID        `json:"user_id"`

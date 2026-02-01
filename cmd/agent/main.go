@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/memohai/memoh/internal/chat"
+	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/config"
 	"github.com/memohai/memoh/internal/logger"
 	ctr "github.com/memohai/memoh/internal/containerd"
@@ -181,6 +182,12 @@ func main() {
 	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService)
 	historyService := history.NewService(logger.L, queries)
 	historyHandler := handlers.NewHistoryHandler(logger.L, historyService)
+	channelService := channel.NewService(queries)
+	channelManager := channel.NewManager(channelService, chatResolver)
+	channelManager.RegisterAdapter(channel.NewTelegramAdapter())
+	channelManager.RegisterAdapter(channel.NewFeishuAdapter())
+	channelManager.Start(ctx)
+	channelHandler := handlers.NewChannelHandler(channelService, channelManager)
 	scheduleService := schedule.NewService(logger.L, queries, chatResolver, cfg.Auth.JWTSecret)
 	if err := scheduleService.Bootstrap(ctx); err != nil {
 		logger.Error("schedule bootstrap", slog.Any("error", err))
@@ -189,7 +196,7 @@ func main() {
 	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService)
 	subagentService := subagent.NewService(logger.L, queries)
 	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService)
-	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, scheduleHandler, subagentHandler, containerdHandler)
+	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler)
 
 	if err := srv.Start(); err != nil {
 		logger.Error("server failed", slog.Any("error", err))

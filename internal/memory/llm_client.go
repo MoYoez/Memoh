@@ -21,6 +21,9 @@ type LLMClient struct {
 }
 
 func NewLLMClient(log *slog.Logger, baseURL, apiKey, model string, timeout time.Duration) *LLMClient {
+	if log == nil {
+		log = slog.Default()
+	}
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}

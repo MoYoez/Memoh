@@ -20,7 +20,7 @@ func TestLLMClientExtract(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewLLMClient(server.URL, "test-key", "gpt-4.1-nano-2025-04-14", 0)
+	client := NewLLMClient(nil, server.URL, "test-key", "gpt-4.1-nano-2025-04-14", 0)
 	resp, err := client.Extract(context.Background(), ExtractRequest{
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
