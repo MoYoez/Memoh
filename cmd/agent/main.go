@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
 
+	// "github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/chat"
-	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/config"
 	ctr "github.com/memohai/memoh/internal/containerd"
 	"github.com/memohai/memoh/internal/db"
@@ -176,18 +177,18 @@ func main() {
 
 	// Initialize providers and models handlers
 	providersService := providers.NewService(logger.L, queries)
-	providersHandler := handlers.NewProvidersHandler(logger.L, providersService)
+	providersHandler := handlers.NewProvidersHandler(logger.L, providersService, modelsService)
 	settingsService := settings.NewService(logger.L, queries)
 	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService)
 	modelsHandler := handlers.NewModelsHandler(logger.L, modelsService, settingsService)
 	historyService := history.NewService(logger.L, queries)
 	historyHandler := handlers.NewHistoryHandler(logger.L, historyService)
-	channelService := channel.NewService(queries)
-	channelManager := channel.NewManager(channelService, chatResolver)
-	channelManager.RegisterAdapter(channel.NewTelegramAdapter())
-	channelManager.RegisterAdapter(channel.NewFeishuAdapter())
-	channelManager.Start(ctx)
-	channelHandler := handlers.NewChannelHandler(channelService, channelManager)
+	// channelService := channel.NewService(queries)
+	// channelManager := channel.NewManager(channelService, chatResolver)
+	// channelManager.RegisterAdapter(channel.NewTelegramAdapter())
+	// channelManager.RegisterAdapter(channel.NewFeishuAdapter())
+	// channelManager.Start(ctx)
+	// channelHandler := handlers.NewChannelHandler(channelService, channelManager)
 	scheduleService := schedule.NewService(logger.L, queries, chatResolver, cfg.Auth.JWTSecret)
 	if err := scheduleService.Bootstrap(ctx); err != nil {
 		logger.Error("schedule bootstrap", slog.Any("error", err))
@@ -196,7 +197,7 @@ func main() {
 	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService)
 	subagentService := subagent.NewService(logger.L, queries)
 	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService)
-	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler)
+	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, scheduleHandler, subagentHandler, containerdHandler, /*channelHandler*/)
 
 	if err := srv.Start(); err != nil {
 		logger.Error("server failed", slog.Any("error", err))

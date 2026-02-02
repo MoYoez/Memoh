@@ -78,6 +78,17 @@ JOIN llm_providers AS p ON p.id = m.llm_provider_id
 WHERE p.client_type = sqlc.arg(client_type)
 ORDER BY m.created_at DESC;
 
+-- name: ListModelsByProviderID :many
+SELECT * FROM models
+WHERE llm_provider_id = sqlc.arg(llm_provider_id)
+ORDER BY created_at DESC;
+
+-- name: ListModelsByProviderIDAndType :many
+SELECT * FROM models
+WHERE llm_provider_id = sqlc.arg(llm_provider_id)
+  AND type = sqlc.arg(type)
+ORDER BY created_at DESC;
+
 -- name: UpdateModel :one
 UPDATE models
 SET

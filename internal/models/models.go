@@ -143,6 +143,44 @@ func (s *Service) ListByClientType(ctx context.Context, clientType ClientType) (
 	return convertToGetResponseList(dbModels), nil
 }
 
+// ListByProviderID returns models filtered by provider ID.
+func (s *Service) ListByProviderID(ctx context.Context, providerID string) ([]GetResponse, error) {
+	if strings.TrimSpace(providerID) == "" {
+		return nil, fmt.Errorf("provider id is required")
+	}
+	uuid, err := parseUUID(providerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid provider id: %w", err)
+	}
+	dbModels, err := s.queries.ListModelsByProviderID(ctx, uuid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models by provider: %w", err)
+	}
+	return convertToGetResponseList(dbModels), nil
+}
+
+// ListByProviderIDAndType returns models filtered by provider ID and type.
+func (s *Service) ListByProviderIDAndType(ctx context.Context, providerID string, modelType ModelType) ([]GetResponse, error) {
+	if modelType != ModelTypeChat && modelType != ModelTypeEmbedding {
+		return nil, fmt.Errorf("invalid model type: %s", modelType)
+	}
+	if strings.TrimSpace(providerID) == "" {
+		return nil, fmt.Errorf("provider id is required")
+	}
+	uuid, err := parseUUID(providerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid provider id: %w", err)
+	}
+	dbModels, err := s.queries.ListModelsByProviderIDAndType(ctx, sqlc.ListModelsByProviderIDAndTypeParams{
+		LlmProviderID: uuid,
+		Type:          string(modelType),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models by provider and type: %w", err)
+	}
+	return convertToGetResponseList(dbModels), nil
+}
+
 // UpdateByID updates a model by its internal UUID
 func (s *Service) UpdateByID(ctx context.Context, id string, req UpdateRequest) (GetResponse, error) {
 	uuid, err := parseUUID(id)

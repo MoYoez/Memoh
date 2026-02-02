@@ -527,6 +527,84 @@ func (q *Queries) ListModelsByClientType(ctx context.Context, clientType string)
 	return items, nil
 }
 
+const listModelsByProviderID = `-- name: ListModelsByProviderID :many
+SELECT id, model_id, name, llm_provider_id, dimensions, is_multimodal, type, created_at, updated_at FROM models
+WHERE llm_provider_id = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListModelsByProviderID(ctx context.Context, llmProviderID pgtype.UUID) ([]Model, error) {
+	rows, err := q.db.Query(ctx, listModelsByProviderID, llmProviderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Model
+	for rows.Next() {
+		var i Model
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModelID,
+			&i.Name,
+			&i.LlmProviderID,
+			&i.Dimensions,
+			&i.IsMultimodal,
+			&i.Type,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listModelsByProviderIDAndType = `-- name: ListModelsByProviderIDAndType :many
+SELECT id, model_id, name, llm_provider_id, dimensions, is_multimodal, type, created_at, updated_at FROM models
+WHERE llm_provider_id = $1
+  AND type = $2
+ORDER BY created_at DESC
+`
+
+type ListModelsByProviderIDAndTypeParams struct {
+	LlmProviderID pgtype.UUID `json:"llm_provider_id"`
+	Type          string      `json:"type"`
+}
+
+func (q *Queries) ListModelsByProviderIDAndType(ctx context.Context, arg ListModelsByProviderIDAndTypeParams) ([]Model, error) {
+	rows, err := q.db.Query(ctx, listModelsByProviderIDAndType, arg.LlmProviderID, arg.Type)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Model
+	for rows.Next() {
+		var i Model
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModelID,
+			&i.Name,
+			&i.LlmProviderID,
+			&i.Dimensions,
+			&i.IsMultimodal,
+			&i.Type,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModelsByType = `-- name: ListModelsByType :many
 SELECT id, model_id, name, llm_provider_id, dimensions, is_multimodal, type, created_at, updated_at FROM models
 WHERE type = $1
