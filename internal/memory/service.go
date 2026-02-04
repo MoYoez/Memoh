@@ -45,8 +45,8 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (SearchResponse, erro
 	if req.Message == "" && len(req.Messages) == 0 {
 		return SearchResponse{}, fmt.Errorf("message or messages is required")
 	}
-	if req.UserID == "" {
-		return SearchResponse{}, fmt.Errorf("user_id is required")
+	if req.BotID == "" && req.AgentID == "" && req.RunID == "" {
+		return SearchResponse{}, fmt.Errorf("bot_id, agent_id or run_id is required")
 	}
 
 	messages := normalizeMessages(req)
@@ -258,8 +258,8 @@ func (s *Service) EmbedUpsert(ctx context.Context, req EmbedUpsertRequest) (Embe
 	if s.resolver == nil {
 		return EmbedUpsertResponse{}, fmt.Errorf("embeddings resolver not configured")
 	}
-	if req.UserID == "" {
-		return EmbedUpsertResponse{}, fmt.Errorf("user_id is required")
+	if req.BotID == "" && req.AgentID == "" && req.RunID == "" {
+		return EmbedUpsertResponse{}, fmt.Errorf("bot_id, agent_id or run_id is required")
 	}
 	req.Type = strings.TrimSpace(req.Type)
 	req.Provider = strings.TrimSpace(req.Provider)
@@ -409,14 +409,17 @@ func (s *Service) Get(ctx context.Context, memoryID string) (MemoryItem, error) 
 
 func (s *Service) GetAll(ctx context.Context, req GetAllRequest) (SearchResponse, error) {
 	filters := map[string]interface{}{}
-	if req.UserID != "" {
-		filters["userId"] = req.UserID
+	if req.BotID != "" {
+		filters["botId"] = req.BotID
+	}
+	if req.SessionID != "" {
+		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
 	}
 	if len(filters) == 0 {
-		return SearchResponse{}, fmt.Errorf("user_id is required")
+		return SearchResponse{}, fmt.Errorf("bot_id, agent_id or run_id is required")
 	}
 
 	points, err := s.store.List(ctx, req.Limit, filters)
@@ -442,14 +445,17 @@ func (s *Service) Delete(ctx context.Context, memoryID string) (DeleteResponse, 
 
 func (s *Service) DeleteAll(ctx context.Context, req DeleteAllRequest) (DeleteResponse, error) {
 	filters := map[string]interface{}{}
-	if req.UserID != "" {
-		filters["userId"] = req.UserID
+	if req.BotID != "" {
+		filters["botId"] = req.BotID
+	}
+	if req.SessionID != "" {
+		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
 	}
 	if len(filters) == 0 {
-		return DeleteResponse{}, fmt.Errorf("user_id is required")
+		return DeleteResponse{}, fmt.Errorf("bot_id, agent_id or run_id is required")
 	}
 	if err := s.store.DeleteAll(ctx, filters); err != nil {
 		return DeleteResponse{}, err
@@ -747,8 +753,11 @@ func buildFilters(req AddRequest) map[string]interface{} {
 	for key, value := range req.Filters {
 		filters[key] = value
 	}
-	if req.UserID != "" {
-		filters["userId"] = req.UserID
+	if req.BotID != "" {
+		filters["botId"] = req.BotID
+	}
+	if req.SessionID != "" {
+		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -761,8 +770,11 @@ func buildSearchFilters(req SearchRequest) map[string]interface{} {
 	for key, value := range req.Filters {
 		filters[key] = value
 	}
-	if req.UserID != "" {
-		filters["userId"] = req.UserID
+	if req.BotID != "" {
+		filters["botId"] = req.BotID
+	}
+	if req.SessionID != "" {
+		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -775,8 +787,11 @@ func buildEmbedFilters(req EmbedUpsertRequest) map[string]interface{} {
 	for key, value := range req.Filters {
 		filters[key] = value
 	}
-	if req.UserID != "" {
-		filters["userId"] = req.UserID
+	if req.BotID != "" {
+		filters["botId"] = req.BotID
+	}
+	if req.SessionID != "" {
+		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -865,8 +880,11 @@ func payloadToMemoryItem(id string, payload map[string]interface{}) MemoryItem {
 	if v, ok := payload["updatedAt"].(string); ok {
 		item.UpdatedAt = v
 	}
-	if v, ok := payload["userId"].(string); ok {
-		item.UserID = v
+	if v, ok := payload["botId"].(string); ok {
+		item.BotID = v
+	}
+	if v, ok := payload["sessionId"].(string); ok {
+		item.SessionID = v
 	}
 	if v, ok := payload["runId"].(string); ok {
 		item.RunID = v

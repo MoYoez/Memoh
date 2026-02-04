@@ -67,6 +67,21 @@ type Settings = {
   language: string
 }
 
+type Bot = {
+  id: string
+  name: string
+  description?: string
+  avatar?: string
+  owner_user_id: string
+  is_public: boolean
+  created_at: string
+  updated_at: string
+}
+
+type BotListResponse = {
+  items: Bot[]
+}
+
 const program = new Command()
 program
   .name('memoh')
@@ -101,6 +116,38 @@ const getErrorMessage = (err: unknown) => {
     if (typeof value === 'string') return value
   }
   return 'Unknown error'
+}
+
+const resolveBotId = async (token: TokenInfo, preset?: string) => {
+  if (preset && preset.trim()) {
+    return preset.trim()
+  }
+  const spinner = ora('Fetching bots...').start()
+  let bots: Bot[] = []
+  try {
+    const resp = await apiRequest<BotListResponse>('/bots', {}, token)
+    bots = resp.items
+    spinner.stop()
+  } catch (err: unknown) {
+    spinner.fail(`Failed to fetch bots: ${getErrorMessage(err)}`)
+    process.exit(1)
+  }
+  if (bots.length === 0) {
+    console.log(chalk.yellow('No bots found. Please create a bot first.'))
+    process.exit(0)
+  }
+  const { botId } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'botId',
+      message: 'Select a bot to chat with:',
+      choices: bots.map(b => ({
+        name: `${b.name} ${chalk.gray(b.description || '')}`,
+        value: b.id,
+      })),
+    },
+  ])
+  return botId as string
 }
 
 const getModelId = (item: ModelResponse) => item.model?.model_id ?? item.model_id ?? ''
@@ -708,35 +755,35 @@ schedule
   })
 
 program
+  .option('--bot <id>', 'Bot id to chat with')
   .action(async () => {
     await ensureModelsReady()
     const token = ensureAuth()
+    const botId = await resolveBotId(token, program.opts().bot)
+    const session = await createLocalSession(botId, token)
+    const sessionId = session.session_id
+
+    const abortStream = startLocalStream(botId, sessionId, token, (text) => {
+      if (text) {
+        process.stdout.write(`\n${chalk.white(text)}\n`)
+      }
+    })
+
     const rl = readline.createInterface({ input, output })
-    console.log(chalk.green('Memoh chat. Type `exit` to quit.'))
+    console.log(chalk.green(`Chatting with ${chalk.bold(botId)}. Type \`exit\` to quit.`))
+
     while (true) {
       const line = (await rl.question(chalk.cyan('> '))).trim()
       if (!line || line.toLowerCase() === 'exit') {
         break
       }
       try {
-        const streamed = await streamChat(line, token)
-        if (!streamed) {
-          const resp = await apiRequest<{ messages: Array<{ role?: string; content?: unknown }> }>('/chat', {
-            method: 'POST',
-            body: JSON.stringify({ query: line }),
-          }, token)
-          const assistant = [...resp.messages].reverse().find(m => m.role === 'assistant') ?? resp.messages.at(-1)
-          const content = assistant?.content
-          if (typeof content === 'string') {
-            console.log(chalk.white(content))
-          } else {
-            console.log(chalk.white(JSON.stringify(content, null, 2)))
-          }
-        }
+        await postLocalMessage(botId, sessionId, line, token)
       } catch (err: unknown) {
         console.log(chalk.red(getErrorMessage(err) || 'Chat failed'))
       }
     }
+    abortStream()
     rl.close()
   })
 
@@ -747,12 +794,23 @@ program
     console.log(`Memoh CLI v${packageJson.version}`)
   })
 
+program
+  .command('tui')
+  .description('Terminal UI chat session')
+  .option('--bot <id>', 'Bot id to chat with')
+  .action(async (opts: { bot?: string }) => {
+    await ensureModelsReady()
+    const token = ensureAuth()
+    const botId = await resolveBotId(token, opts.bot)
+    await runTui(botId, token)
+  })
+
 program.parseAsync(process.argv)
 
-const streamChat = async (query: string, token: TokenInfo) => {
+const streamChat = async (query: string, botId: string, sessionId: string, token: TokenInfo) => {
   const config = readConfig()
   const baseURL = getBaseURL(config)
-  const resp = await fetch(`${baseURL}/chat/stream`, {
+  const resp = await fetch(`${baseURL}/bots/${botId}/chat/stream?session_id=${sessionId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -805,5 +863,86 @@ const extractTextFromEvent = (payload: string) => {
   } catch {
     return payload
   }
+}
+
+type LocalSessionResponse = {
+  session_id: string
+  stream_url: string
+}
+
+const createLocalSession = async (botId: string, token: TokenInfo) => {
+  return apiRequest<LocalSessionResponse>(`/bots/${botId}/cli/sessions`, { method: 'POST' }, token)
+}
+
+const postLocalMessage = async (botId: string, sessionId: string, text: string, token: TokenInfo) => {
+  return apiRequest(`/bots/${botId}/cli/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  }, token)
+}
+
+const startLocalStream = (botId: string, sessionId: string, token: TokenInfo, onText: (text: string) => void) => {
+  const config = readConfig()
+  const baseURL = getBaseURL(config)
+  const controller = new AbortController()
+  void (async () => {
+    const resp = await fetch(`${baseURL}/bots/${botId}/cli/sessions/${sessionId}/stream`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token.access_token}`,
+      },
+      signal: controller.signal,
+    }).catch(() => null)
+    if (!resp || !resp.ok || !resp.body) return
+
+    const stream = resp.body
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).trim()
+        buffer = buffer.slice(idx + 1)
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (!payload || payload === '[DONE]') continue
+        const text = extractTextFromEvent(payload)
+        if (text) {
+          onText(text)
+        }
+      }
+    }
+  })()
+  return () => controller.abort()
+}
+
+const runTui = async (botId: string, token: TokenInfo) => {
+  const session = await createLocalSession(botId, token)
+  const sessionId = session.session_id
+  const abortStream = startLocalStream(botId, sessionId, token, (text) => {
+    if (text) {
+      process.stdout.write(`\n${chalk.white(text)}\n`)
+    }
+  })
+
+  const rl = readline.createInterface({ input, output })
+  console.log(chalk.green(`TUI session (line mode) with ${chalk.bold(botId)}. Type \`exit\` to quit.`))
+  while (true) {
+    const line = (await rl.question(chalk.cyan('> '))).trim()
+    if (!line || line.toLowerCase() === 'exit') {
+      break
+    }
+    try {
+      await postLocalMessage(botId, sessionId, line, token)
+    } catch (err: unknown) {
+      console.log(chalk.red(getErrorMessage(err) || 'Chat failed'))
+    }
+  }
+  abortStream()
+  rl.close()
 }
 

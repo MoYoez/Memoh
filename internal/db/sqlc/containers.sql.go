@@ -12,7 +12,7 @@ import (
 )
 
 const getContainerByContainerID = `-- name: GetContainerByContainerID :one
-SELECT id, user_id, container_id, container_name, image, status, namespace, auto_start, host_path, container_path, created_at, updated_at, last_started_at, last_stopped_at FROM containers WHERE container_id = $1
+SELECT id, bot_id, container_id, container_name, image, status, namespace, auto_start, host_path, container_path, created_at, updated_at, last_started_at, last_stopped_at FROM containers WHERE container_id = $1
 `
 
 func (q *Queries) GetContainerByContainerID(ctx context.Context, containerID string) (Container, error) {
@@ -20,7 +20,7 @@ func (q *Queries) GetContainerByContainerID(ctx context.Context, containerID str
 	var i Container
 	err := row.Scan(
 		&i.ID,
-		&i.UserID,
+		&i.BotID,
 		&i.ContainerID,
 		&i.ContainerName,
 		&i.Image,
@@ -39,7 +39,7 @@ func (q *Queries) GetContainerByContainerID(ctx context.Context, containerID str
 
 const upsertContainer = `-- name: UpsertContainer :exec
 INSERT INTO containers (
-  user_id, container_id, container_name, image, status, namespace, auto_start,
+  bot_id, container_id, container_name, image, status, namespace, auto_start,
   host_path, container_path, last_started_at, last_stopped_at
 )
 VALUES (
@@ -56,7 +56,7 @@ VALUES (
   $11
 )
 ON CONFLICT (container_id) DO UPDATE SET
-  user_id = EXCLUDED.user_id,
+  bot_id = EXCLUDED.bot_id,
   container_name = EXCLUDED.container_name,
   image = EXCLUDED.image,
   status = EXCLUDED.status,
@@ -70,7 +70,7 @@ ON CONFLICT (container_id) DO UPDATE SET
 `
 
 type UpsertContainerParams struct {
-	UserID        pgtype.UUID        `json:"user_id"`
+	BotID         pgtype.UUID        `json:"bot_id"`
 	ContainerID   string             `json:"container_id"`
 	ContainerName string             `json:"container_name"`
 	Image         string             `json:"image"`
@@ -85,7 +85,7 @@ type UpsertContainerParams struct {
 
 func (q *Queries) UpsertContainer(ctx context.Context, arg UpsertContainerParams) error {
 	_, err := q.db.Exec(ctx, upsertContainer,
-		arg.UserID,
+		arg.BotID,
 		arg.ContainerID,
 		arg.ContainerName,
 		arg.Image,

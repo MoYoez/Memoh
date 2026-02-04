@@ -1,30 +1,39 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/auth"
+	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/settings"
+	"github.com/memohai/memoh/internal/users"
 )
 
 type SettingsHandler struct {
-	service *settings.Service
-	logger  *slog.Logger
+	service     *settings.Service
+	botService  *bots.Service
+	userService *users.Service
+	logger      *slog.Logger
 }
 
-func NewSettingsHandler(log *slog.Logger, service *settings.Service) *SettingsHandler {
+func NewSettingsHandler(log *slog.Logger, service *settings.Service, botService *bots.Service, userService *users.Service) *SettingsHandler {
 	return &SettingsHandler{
-		service: service,
-		logger:  log.With(slog.String("handler", "settings")),
+		service:     service,
+		botService:  botService,
+		userService: userService,
+		logger:      log.With(slog.String("handler", "settings")),
 	}
 }
 
 func (h *SettingsHandler) Register(e *echo.Echo) {
-	group := e.Group("/settings")
+	group := e.Group("/bots/:bot_id/settings")
 	group.GET("", h.Get)
 	group.POST("", h.Upsert)
 	group.PUT("", h.Upsert)
@@ -38,13 +47,20 @@ func (h *SettingsHandler) Register(e *echo.Echo) {
 // @Success 200 {object} settings.Settings
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /settings [get]
+// @Router /bots/{bot_id}/settings [get]
 func (h *SettingsHandler) Get(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
 	}
-	resp, err := h.service.Get(c.Request().Context(), userID)
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	resp, err := h.service.GetBot(c.Request().Context(), botID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -59,18 +75,25 @@ func (h *SettingsHandler) Get(c echo.Context) error {
 // @Success 200 {object} settings.Settings
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /settings [put]
-// @Router /settings [post]
+// @Router /bots/{bot_id}/settings [put]
+// @Router /bots/{bot_id}/settings [post]
 func (h *SettingsHandler) Upsert(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 	var req settings.UpsertRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.Upsert(c.Request().Context(), userID, req)
+	resp, err := h.service.UpsertBot(c.Request().Context(), botID, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -84,13 +107,20 @@ func (h *SettingsHandler) Upsert(c echo.Context) error {
 // @Success 204 "No Content"
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /settings [delete]
+// @Router /bots/{bot_id}/settings [delete]
 func (h *SettingsHandler) Delete(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
 	}
-	if err := h.service.Delete(c.Request().Context(), userID); err != nil {
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	if err := h.service.Delete(c.Request().Context(), botID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -107,3 +137,23 @@ func (h *SettingsHandler) requireUserID(c echo.Context) (string, error) {
 	return userID, nil
 }
 
+func (h *SettingsHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.userService == nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
+	}
+	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	if err != nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	if err != nil {
+		if errors.Is(err, bots.ErrBotNotFound) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
+		}
+		if errors.Is(err, bots.ErrBotAccessDenied) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
+		}
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return bot, nil
+}

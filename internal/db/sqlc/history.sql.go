@@ -12,34 +12,52 @@ import (
 )
 
 const createHistory = `-- name: CreateHistory :one
-INSERT INTO history (messages, skills, timestamp, "user")
-VALUES ($1, $2, $3, $4)
-RETURNING id, messages, skills, timestamp, "user"
+INSERT INTO history (bot_id, session_id, messages, skills, timestamp)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, bot_id, session_id, messages, skills, timestamp
 `
 
 type CreateHistoryParams struct {
+	BotID     pgtype.UUID        `json:"bot_id"`
+	SessionID string             `json:"session_id"`
 	Messages  []byte             `json:"messages"`
 	Skills    []string           `json:"skills"`
 	Timestamp pgtype.Timestamptz `json:"timestamp"`
-	User      pgtype.UUID        `json:"user"`
 }
 
 func (q *Queries) CreateHistory(ctx context.Context, arg CreateHistoryParams) (History, error) {
 	row := q.db.QueryRow(ctx, createHistory,
+		arg.BotID,
+		arg.SessionID,
 		arg.Messages,
 		arg.Skills,
 		arg.Timestamp,
-		arg.User,
 	)
 	var i History
 	err := row.Scan(
 		&i.ID,
+		&i.BotID,
+		&i.SessionID,
 		&i.Messages,
 		&i.Skills,
 		&i.Timestamp,
-		&i.User,
 	)
 	return i, err
+}
+
+const deleteHistoryByBotSession = `-- name: DeleteHistoryByBotSession :exec
+DELETE FROM history
+WHERE bot_id = $1 AND session_id = $2
+`
+
+type DeleteHistoryByBotSessionParams struct {
+	BotID     pgtype.UUID `json:"bot_id"`
+	SessionID string      `json:"session_id"`
+}
+
+func (q *Queries) DeleteHistoryByBotSession(ctx context.Context, arg DeleteHistoryByBotSessionParams) error {
+	_, err := q.db.Exec(ctx, deleteHistoryByBotSession, arg.BotID, arg.SessionID)
+	return err
 }
 
 const deleteHistoryByID = `-- name: DeleteHistoryByID :exec
@@ -52,18 +70,8 @@ func (q *Queries) DeleteHistoryByID(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-const deleteHistoryByUser = `-- name: DeleteHistoryByUser :exec
-DELETE FROM history
-WHERE "user" = $1
-`
-
-func (q *Queries) DeleteHistoryByUser(ctx context.Context, user pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteHistoryByUser, user)
-	return err
-}
-
 const getHistoryByID = `-- name: GetHistoryByID :one
-SELECT id, messages, skills, timestamp, "user"
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
 WHERE id = $1
 `
@@ -73,29 +81,31 @@ func (q *Queries) GetHistoryByID(ctx context.Context, id pgtype.UUID) (History, 
 	var i History
 	err := row.Scan(
 		&i.ID,
+		&i.BotID,
+		&i.SessionID,
 		&i.Messages,
 		&i.Skills,
 		&i.Timestamp,
-		&i.User,
 	)
 	return i, err
 }
 
-const listHistoryByUser = `-- name: ListHistoryByUser :many
-SELECT id, messages, skills, timestamp, "user"
+const listHistoryByBotSession = `-- name: ListHistoryByBotSession :many
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
-WHERE "user" = $1
+WHERE bot_id = $1 AND session_id = $2
 ORDER BY timestamp DESC
-LIMIT $2
+LIMIT $3
 `
 
-type ListHistoryByUserParams struct {
-	User  pgtype.UUID `json:"user"`
-	Limit int32       `json:"limit"`
+type ListHistoryByBotSessionParams struct {
+	BotID     pgtype.UUID `json:"bot_id"`
+	SessionID string      `json:"session_id"`
+	Limit     int32       `json:"limit"`
 }
 
-func (q *Queries) ListHistoryByUser(ctx context.Context, arg ListHistoryByUserParams) ([]History, error) {
-	rows, err := q.db.Query(ctx, listHistoryByUser, arg.User, arg.Limit)
+func (q *Queries) ListHistoryByBotSession(ctx context.Context, arg ListHistoryByBotSessionParams) ([]History, error) {
+	rows, err := q.db.Query(ctx, listHistoryByBotSession, arg.BotID, arg.SessionID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -105,10 +115,11 @@ func (q *Queries) ListHistoryByUser(ctx context.Context, arg ListHistoryByUserPa
 		var i History
 		if err := rows.Scan(
 			&i.ID,
+			&i.BotID,
+			&i.SessionID,
 			&i.Messages,
 			&i.Skills,
 			&i.Timestamp,
-			&i.User,
 		); err != nil {
 			return nil, err
 		}
@@ -120,20 +131,21 @@ func (q *Queries) ListHistoryByUser(ctx context.Context, arg ListHistoryByUserPa
 	return items, nil
 }
 
-const listHistoryByUserSince = `-- name: ListHistoryByUserSince :many
-SELECT id, messages, skills, timestamp, "user"
+const listHistoryByBotSessionSince = `-- name: ListHistoryByBotSessionSince :many
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
-WHERE "user" = $1 AND timestamp >= $2
+WHERE bot_id = $1 AND session_id = $2 AND timestamp >= $3
 ORDER BY timestamp ASC
 `
 
-type ListHistoryByUserSinceParams struct {
-	User      pgtype.UUID        `json:"user"`
+type ListHistoryByBotSessionSinceParams struct {
+	BotID     pgtype.UUID        `json:"bot_id"`
+	SessionID string             `json:"session_id"`
 	Timestamp pgtype.Timestamptz `json:"timestamp"`
 }
 
-func (q *Queries) ListHistoryByUserSince(ctx context.Context, arg ListHistoryByUserSinceParams) ([]History, error) {
-	rows, err := q.db.Query(ctx, listHistoryByUserSince, arg.User, arg.Timestamp)
+func (q *Queries) ListHistoryByBotSessionSince(ctx context.Context, arg ListHistoryByBotSessionSinceParams) ([]History, error) {
+	rows, err := q.db.Query(ctx, listHistoryByBotSessionSince, arg.BotID, arg.SessionID, arg.Timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -143,10 +155,11 @@ func (q *Queries) ListHistoryByUserSince(ctx context.Context, arg ListHistoryByU
 		var i History
 		if err := rows.Scan(
 			&i.ID,
+			&i.BotID,
+			&i.SessionID,
 			&i.Messages,
 			&i.Skills,
 			&i.Timestamp,
-			&i.User,
 		); err != nil {
 			return nil, err
 		}

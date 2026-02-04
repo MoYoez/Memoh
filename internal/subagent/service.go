@@ -27,7 +27,7 @@ func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	}
 }
 
-func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) (Subagent, error) {
+func (s *Service) Create(ctx context.Context, botID string, req CreateRequest) (Subagent, error) {
 	if s.queries == nil {
 		return Subagent{}, fmt.Errorf("subagent queries not configured")
 	}
@@ -39,7 +39,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	if description == "" {
 		return Subagent{}, fmt.Errorf("description is required")
 	}
-	pgUserID, err := parseUUID(userID)
+	pgBotID, err := parseUUID(botID)
 	if err != nil {
 		return Subagent{}, err
 	}
@@ -58,7 +58,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	row, err := s.queries.CreateSubagent(ctx, sqlc.CreateSubagentParams{
 		Name:        name,
 		Description: description,
-		UserID:      pgUserID,
+		BotID:       pgBotID,
 		Messages:    messagesPayload,
 		Metadata:    metadataPayload,
 		Skills:      skillsPayload,
@@ -84,12 +84,12 @@ func (s *Service) Get(ctx context.Context, id string) (Subagent, error) {
 	return toSubagent(row)
 }
 
-func (s *Service) List(ctx context.Context, userID string) ([]Subagent, error) {
-	pgUserID, err := parseUUID(userID)
+func (s *Service) List(ctx context.Context, botID string) ([]Subagent, error) {
+	pgBotID, err := parseUUID(botID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.queries.ListSubagentsByUser(ctx, pgUserID)
+	rows, err := s.queries.ListSubagentsByBot(ctx, pgBotID)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func toSubagent(row sqlc.Subagent) (Subagent, error) {
 		ID:          toUUIDString(row.ID),
 		Name:        row.Name,
 		Description: row.Description,
-		UserID:      toUUIDString(row.UserID),
+		BotID:       toUUIDString(row.BotID),
 		Messages:    messages,
 		Metadata:    metadata,
 		Skills:      skills,
@@ -357,4 +357,3 @@ func toUUIDString(value pgtype.UUID) string {
 	}
 	return id.String()
 }
-

@@ -198,7 +198,7 @@ func (h *ContainerdHandler) ensureSkillsDirHost(userID string) error {
 	if dataRoot == "" {
 		dataRoot = config.DefaultDataRoot
 	}
-	skillsDir := path.Join(dataRoot, "users", userID, ".skills")
+	skillsDir := path.Join(dataRoot, "bots", userID, ".skills")
 	return os.MkdirAll(skillsDir, 0o755)
 }
 

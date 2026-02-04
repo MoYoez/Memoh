@@ -7,10 +7,11 @@ import { join } from 'path'
 
 const config = loadConfig('../config.toml')
 
-export type AuthFetcher = (url: string, options: RequestInit) => Promise<Response>
+export type AuthFetcher = (url: string, options?: RequestInit) => Promise<Response>
 export const createAuthFetcher = (bearer: string | undefined): AuthFetcher => {
-  return async (url: string, options: RequestInit) => {
-    const headers = new Headers(options.headers || {})
+  return async (url: string, options?: RequestInit) => {
+    const requestOptions = options ?? {}
+    const headers = new Headers(requestOptions.headers || {})
     if (bearer) {
       headers.set('Authorization', `Bearer ${bearer}`)
     }
@@ -22,7 +23,7 @@ export const createAuthFetcher = (bearer: string | undefined): AuthFetcher => {
       baseUrl = `http://127.0.0.1${config.server.addr}`
     }
     return await fetch(join(baseUrl, url), {
-      ...options,
+      ...requestOptions,
       headers,
     })
   }

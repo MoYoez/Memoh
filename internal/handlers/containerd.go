@@ -156,7 +156,7 @@ func (h *ContainerdHandler) CreateContainer(c echo.Context) error {
 	if dataMount == "" {
 		dataMount = config.DefaultDataMount
 	}
-	dataDir := filepath.Join(dataRoot, "users", userID)
+	dataDir := filepath.Join(dataRoot, "bots", userID)
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -179,7 +179,7 @@ func (h *ContainerdHandler) CreateContainer(c echo.Context) error {
 		ImageRef:    image,
 		Snapshotter: snapshotter,
 		Labels: map[string]string{
-			mcp.UserLabelKey: userID,
+			mcp.BotLabelKey: userID,
 		},
 		SpecOpts: specOpts,
 	})
@@ -253,7 +253,7 @@ func (h *ContainerdHandler) ensureTaskRunning(ctx context.Context, containerID s
 }
 
 func (h *ContainerdHandler) userContainerID(ctx context.Context, userID string) (string, error) {
-	containers, err := h.service.ListContainersByLabel(ctx, mcp.UserLabelKey, userID)
+	containers, err := h.service.ListContainersByLabel(ctx, mcp.BotLabelKey, userID)
 	if err != nil {
 		return "", err
 	}

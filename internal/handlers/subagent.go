@@ -1,30 +1,39 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/auth"
+	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/subagent"
+	"github.com/memohai/memoh/internal/users"
 )
 
 type SubagentHandler struct {
-	service *subagent.Service
-	logger  *slog.Logger
+	service     *subagent.Service
+	botService  *bots.Service
+	userService *users.Service
+	logger      *slog.Logger
 }
 
-func NewSubagentHandler(log *slog.Logger, service *subagent.Service) *SubagentHandler {
+func NewSubagentHandler(log *slog.Logger, service *subagent.Service, botService *bots.Service, userService *users.Service) *SubagentHandler {
 	return &SubagentHandler{
-		service: service,
-		logger:  log.With(slog.String("handler", "subagent")),
+		service:     service,
+		botService:  botService,
+		userService: userService,
+		logger:      log.With(slog.String("handler", "subagent")),
 	}
 }
 
 func (h *SubagentHandler) Register(e *echo.Echo) {
-	group := e.Group("/subagents")
+	group := e.Group("/bots/:bot_id/subagents")
 	group.POST("", h.Create)
 	group.GET("", h.List)
 	group.GET("/:id", h.Get)
@@ -45,17 +54,24 @@ func (h *SubagentHandler) Register(e *echo.Echo) {
 // @Success 201 {object} subagent.Subagent
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents [post]
+// @Router /bots/{bot_id}/subagents [post]
 func (h *SubagentHandler) Create(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 	var req subagent.CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.Create(c.Request().Context(), userID, req)
+	resp, err := h.service.Create(c.Request().Context(), botID, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -69,13 +85,20 @@ func (h *SubagentHandler) Create(c echo.Context) error {
 // @Success 200 {object} subagent.ListResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents [get]
+// @Router /bots/{bot_id}/subagents [get]
 func (h *SubagentHandler) List(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
 	}
-	items, err := h.service.List(c.Request().Context(), userID)
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	items, err := h.service.List(c.Request().Context(), botID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -91,11 +114,15 @@ func (h *SubagentHandler) List(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id} [get]
+// @Router /bots/{bot_id}/subagents/{id} [get]
 func (h *SubagentHandler) Get(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -105,8 +132,11 @@ func (h *SubagentHandler) Get(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	return c.JSON(http.StatusOK, item)
 }
@@ -121,11 +151,15 @@ func (h *SubagentHandler) Get(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id} [put]
+// @Router /bots/{bot_id}/subagents/{id} [put]
 func (h *SubagentHandler) Update(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -139,8 +173,11 @@ func (h *SubagentHandler) Update(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	resp, err := h.service.Update(c.Request().Context(), id, req)
 	if err != nil {
@@ -158,11 +195,15 @@ func (h *SubagentHandler) Update(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id} [delete]
+// @Router /bots/{bot_id}/subagents/{id} [delete]
 func (h *SubagentHandler) Delete(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -172,8 +213,11 @@ func (h *SubagentHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	if err := h.service.Delete(c.Request().Context(), id); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -190,11 +234,15 @@ func (h *SubagentHandler) Delete(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id}/context [get]
+// @Router /bots/{bot_id}/subagents/{id}/context [get]
 func (h *SubagentHandler) GetContext(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -204,8 +252,11 @@ func (h *SubagentHandler) GetContext(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	return c.JSON(http.StatusOK, subagent.ContextResponse{Messages: item.Messages})
 }
@@ -220,11 +271,15 @@ func (h *SubagentHandler) GetContext(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id}/context [put]
+// @Router /bots/{bot_id}/subagents/{id}/context [put]
 func (h *SubagentHandler) UpdateContext(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -238,8 +293,11 @@ func (h *SubagentHandler) UpdateContext(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	updated, err := h.service.UpdateContext(c.Request().Context(), id, req)
 	if err != nil {
@@ -257,11 +315,15 @@ func (h *SubagentHandler) UpdateContext(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id}/skills [get]
+// @Router /bots/{bot_id}/subagents/{id}/skills [get]
 func (h *SubagentHandler) GetSkills(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -271,8 +333,11 @@ func (h *SubagentHandler) GetSkills(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	return c.JSON(http.StatusOK, subagent.SkillsResponse{Skills: item.Skills})
 }
@@ -287,11 +352,15 @@ func (h *SubagentHandler) GetSkills(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id}/skills [put]
+// @Router /bots/{bot_id}/subagents/{id}/skills [put]
 func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -305,8 +374,11 @@ func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if item.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	updated, err := h.service.UpdateSkills(c.Request().Context(), id, req)
 	if err != nil {
@@ -325,11 +397,15 @@ func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /subagents/{id}/skills [post]
+// @Router /bots/{bot_id}/subagents/{id}/skills [post]
 func (h *SubagentHandler) AddSkills(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
 	id := c.Param("id")
 	if id == "" {
@@ -343,8 +419,11 @@ func (h *SubagentHandler) AddSkills(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
-	if item.UserID != userID {
+	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
 	}
 	updated, err := h.service.AddSkills(c.Request().Context(), id, req)
 	if err != nil {
@@ -364,3 +443,23 @@ func (h *SubagentHandler) requireUserID(c echo.Context) (string, error) {
 	return userID, nil
 }
 
+func (h *SubagentHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.userService == nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
+	}
+	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	if err != nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	if err != nil {
+		if errors.Is(err, bots.ErrBotNotFound) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
+		}
+		if errors.Is(err, bots.ErrBotAccessDenied) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
+		}
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return bot, nil
+}

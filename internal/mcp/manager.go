@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	UserLabelKey    = "mcp.user_id"
+	BotLabelKey     = "mcp.bot_id"
 	ContainerPrefix = "mcp-"
 )
 
 type ExecRequest struct {
-	UserID   string
+	BotID    string
 	Command  []string
 	Env      []string
 	WorkDir  string
@@ -51,9 +51,9 @@ func NewManager(log *slog.Logger, service ctr.Service, cfg config.MCPConfig) *Ma
 	return &Manager{
 		service: service,
 		cfg:     cfg,
-		logger:  log.With(slog.String("manager", "mcp")),
-		containerID: func(userID string) string {
-			return ContainerPrefix + userID
+		logger:  log.With(slog.String("component", "mcp")),
+		containerID: func(botID string) string {
+			return ContainerPrefix + botID
 		},
 	}
 }
@@ -111,7 +111,7 @@ func (m *Manager) EnsureUser(ctx context.Context, userID string) error {
 		ImageRef:    image,
 		Snapshotter: m.cfg.Snapshotter,
 		Labels: map[string]string{
-			UserLabelKey: userID,
+			BotLabelKey: userID,
 		},
 		SpecOpts: specOpts,
 	})
@@ -139,8 +139,8 @@ func (m *Manager) ListUsers(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		if strings.HasPrefix(info.ID, ContainerPrefix) {
-			if userID, ok := info.Labels[UserLabelKey]; ok {
-				users = append(users, userID)
+			if botID, ok := info.Labels[BotLabelKey]; ok {
+				users = append(users, botID)
 			}
 		}
 	}
@@ -180,7 +180,7 @@ func (m *Manager) Delete(ctx context.Context, userID string) error {
 }
 
 func (m *Manager) Exec(ctx context.Context, req ExecRequest) (*ExecResult, error) {
-	if err := validateUserID(req.UserID); err != nil {
+	if err := validateUserID(req.BotID); err != nil {
 		return nil, err
 	}
 	if len(req.Command) == 0 {
@@ -191,11 +191,11 @@ func (m *Manager) Exec(ctx context.Context, req ExecRequest) (*ExecResult, error
 	}
 
 	startedAt := time.Now()
-	if _, err := m.CreateVersion(ctx, req.UserID); err != nil {
+	if _, err := m.CreateVersion(ctx, req.BotID); err != nil {
 		return nil, err
 	}
 
-	result, err := m.service.ExecTask(ctx, m.containerID(req.UserID), ctr.ExecTaskRequest{
+	result, err := m.service.ExecTask(ctx, m.containerID(req.BotID), ctr.ExecTaskRequest{
 		Args:     req.Command,
 		Env:      req.Env,
 		WorkDir:  req.WorkDir,
@@ -206,7 +206,8 @@ func (m *Manager) Exec(ctx context.Context, req ExecRequest) (*ExecResult, error
 		return nil, err
 	}
 
-	if err := m.insertEvent(ctx, m.containerID(req.UserID), "exec", map[string]any{
+	if err := m.insertEvent(ctx, m.containerID(req.BotID), "exec", map[string]any{
+		"bot_id":    req.BotID,
 		"command":   req.Command,
 		"work_dir":  req.WorkDir,
 		"exit_code": result.ExitCode,
@@ -227,7 +228,7 @@ func (m *Manager) DataDir(userID string) (string, error) {
 	if root == "" {
 		root = config.DefaultDataRoot
 	}
-	return filepath.Join(root, "users", userID), nil
+	return filepath.Join(root, "bots", userID), nil
 }
 
 func (m *Manager) ensureUserDir(userID string) (string, error) {
@@ -235,7 +236,7 @@ func (m *Manager) ensureUserDir(userID string) (string, error) {
 	if root == "" {
 		root = config.DefaultDataRoot
 	}
-	dir := filepath.Join(root, "users", userID)
+	dir := filepath.Join(root, "bots", userID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

@@ -11,14 +11,32 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteSettingsByUserID = `-- name: DeleteSettingsByUserID :exec
-DELETE FROM user_settings
-WHERE user_id = $1
+const deleteSettingsByBotID = `-- name: DeleteSettingsByBotID :exec
+DELETE FROM bot_settings
+WHERE bot_id = $1
 `
 
-func (q *Queries) DeleteSettingsByUserID(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteSettingsByUserID, userID)
+func (q *Queries) DeleteSettingsByBotID(ctx context.Context, botID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSettingsByBotID, botID)
 	return err
+}
+
+const getSettingsByBotID = `-- name: GetSettingsByBotID :one
+SELECT bot_id, max_context_load_time, language, allow_guest
+FROM bot_settings
+WHERE bot_id = $1
+`
+
+func (q *Queries) GetSettingsByBotID(ctx context.Context, botID pgtype.UUID) (BotSetting, error) {
+	row := q.db.QueryRow(ctx, getSettingsByBotID, botID)
+	var i BotSetting
+	err := row.Scan(
+		&i.BotID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.AllowGuest,
+	)
+	return i, err
 }
 
 const getSettingsByUserID = `-- name: GetSettingsByUserID :one
@@ -41,7 +59,41 @@ func (q *Queries) GetSettingsByUserID(ctx context.Context, userID pgtype.UUID) (
 	return i, err
 }
 
-const upsertSettings = `-- name: UpsertSettings :one
+const upsertBotSettings = `-- name: UpsertBotSettings :one
+INSERT INTO bot_settings (bot_id, max_context_load_time, language, allow_guest)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (bot_id) DO UPDATE SET
+  max_context_load_time = EXCLUDED.max_context_load_time,
+  language = EXCLUDED.language,
+  allow_guest = EXCLUDED.allow_guest
+RETURNING bot_id, max_context_load_time, language, allow_guest
+`
+
+type UpsertBotSettingsParams struct {
+	BotID              pgtype.UUID `json:"bot_id"`
+	MaxContextLoadTime int32       `json:"max_context_load_time"`
+	Language           string      `json:"language"`
+	AllowGuest         bool        `json:"allow_guest"`
+}
+
+func (q *Queries) UpsertBotSettings(ctx context.Context, arg UpsertBotSettingsParams) (BotSetting, error) {
+	row := q.db.QueryRow(ctx, upsertBotSettings,
+		arg.BotID,
+		arg.MaxContextLoadTime,
+		arg.Language,
+		arg.AllowGuest,
+	)
+	var i BotSetting
+	err := row.Scan(
+		&i.BotID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.AllowGuest,
+	)
+	return i, err
+}
+
+const upsertUserSettings = `-- name: UpsertUserSettings :one
 INSERT INTO user_settings (user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (user_id) DO UPDATE SET
@@ -53,7 +105,7 @@ ON CONFLICT (user_id) DO UPDATE SET
 RETURNING user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language
 `
 
-type UpsertSettingsParams struct {
+type UpsertUserSettingsParams struct {
 	UserID             pgtype.UUID `json:"user_id"`
 	ChatModelID        pgtype.Text `json:"chat_model_id"`
 	MemoryModelID      pgtype.Text `json:"memory_model_id"`
@@ -62,8 +114,8 @@ type UpsertSettingsParams struct {
 	Language           string      `json:"language"`
 }
 
-func (q *Queries) UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (UserSetting, error) {
-	row := q.db.QueryRow(ctx, upsertSettings,
+func (q *Queries) UpsertUserSettings(ctx context.Context, arg UpsertUserSettingsParams) (UserSetting, error) {
+	row := q.db.QueryRow(ctx, upsertUserSettings,
 		arg.UserID,
 		arg.ChatModelID,
 		arg.MemoryModelID,

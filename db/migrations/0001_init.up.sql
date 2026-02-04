@@ -25,39 +25,6 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT users_username_unique UNIQUE (username)
 );
 
-CREATE TABLE IF NOT EXISTS containers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  container_id TEXT NOT NULL,
-  container_name TEXT NOT NULL,
-  image TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'created',
-  namespace TEXT NOT NULL DEFAULT 'default',
-  auto_start BOOLEAN NOT NULL DEFAULT true,
-  host_path TEXT,
-  container_path TEXT NOT NULL DEFAULT '/data',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_started_at TIMESTAMPTZ,
-  last_stopped_at TIMESTAMPTZ,
-  CONSTRAINT containers_container_id_unique UNIQUE (container_id),
-  CONSTRAINT containers_container_name_unique UNIQUE (container_name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_containers_user_id ON containers(user_id);
-
-CREATE TABLE IF NOT EXISTS snapshots (
-  id TEXT PRIMARY KEY,
-  container_id TEXT NOT NULL REFERENCES containers(container_id) ON DELETE CASCADE,
-  parent_snapshot_id TEXT REFERENCES snapshots(id) ON DELETE SET NULL,
-  snapshotter TEXT NOT NULL,
-  digest TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_snapshots_container_id ON snapshots(container_id);
-CREATE INDEX IF NOT EXISTS idx_snapshots_parent_id ON snapshots(parent_snapshot_id);
-
 CREATE TABLE IF NOT EXISTS llm_providers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -99,6 +66,203 @@ CREATE TABLE IF NOT EXISTS model_variants (
 CREATE INDEX IF NOT EXISTS idx_model_variants_model_uuid ON model_variants(model_uuid);
 CREATE INDEX IF NOT EXISTS idx_model_variants_variant_id ON model_variants(variant_id);
 
+CREATE TABLE IF NOT EXISTS bots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bots_type_check CHECK (type IN ('personal', 'public'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bots_owner_user_id ON bots(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS bot_members (
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bot_members_role_check CHECK (role IN ('owner', 'admin', 'member')),
+  CONSTRAINT bot_members_unique UNIQUE (bot_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_members_user_id ON bot_members(user_id);
+
+CREATE TABLE IF NOT EXISTS bot_settings (
+  bot_id UUID PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+  max_context_load_time INTEGER NOT NULL DEFAULT 1440,
+  language TEXT NOT NULL DEFAULT 'Same as user input',
+  allow_guest BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS bot_model_configs (
+  bot_id UUID PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+  chat_model_id UUID REFERENCES models(id) ON DELETE SET NULL,
+  embedding_model_id UUID REFERENCES models(id) ON DELETE SET NULL,
+  memory_model_id UUID REFERENCES models(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  channel_type TEXT NOT NULL,
+  chat_id TEXT,
+  sender_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT conversations_session_unique UNIQUE (bot_id, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_bot_id ON conversations(bot_id);
+
+CREATE TABLE IF NOT EXISTS history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  messages JSONB NOT NULL,
+  skills TEXT[] NOT NULL DEFAULT '{}'::text[],
+  timestamp TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_bot ON history(bot_id);
+CREATE INDEX IF NOT EXISTS idx_history_session ON history(session_id);
+CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
+
+CREATE TABLE IF NOT EXISTS user_channel_bindings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_type TEXT NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT user_channel_bindings_unique UNIQUE (user_id, channel_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_channel_bindings_user_id ON user_channel_bindings(user_id);
+
+CREATE TABLE IF NOT EXISTS bot_channel_configs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  channel_type TEXT NOT NULL,
+  credentials JSONB NOT NULL DEFAULT '{}'::jsonb,
+  external_identity TEXT,
+  self_identity JSONB NOT NULL DEFAULT '{}'::jsonb,
+  routing JSONB NOT NULL DEFAULT '{}'::jsonb,
+  capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'pending',
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bot_channel_status_check CHECK (status IN ('pending', 'verified', 'disabled')),
+  CONSTRAINT bot_channel_unique UNIQUE (bot_id, channel_type)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_channel_external_identity
+  ON bot_channel_configs(channel_type, external_identity);
+
+CREATE INDEX IF NOT EXISTS idx_bot_channel_bot_id ON bot_channel_configs(bot_id);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  display_name TEXT,
+  alias TEXT,
+  tags TEXT[] NOT NULL DEFAULT '{}'::text[],
+  status TEXT NOT NULL DEFAULT 'active',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT contacts_status_check CHECK (status IN ('active', 'blocked', 'pending'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_bot_user_unique
+  ON contacts(bot_id, user_id)
+  WHERE user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_contacts_bot_id ON contacts(bot_id);
+
+CREATE TABLE IF NOT EXISTS contact_channels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT contact_channels_unique UNIQUE (bot_id, platform, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_channels_contact_id ON contact_channels(contact_id);
+CREATE INDEX IF NOT EXISTS idx_contact_channels_platform_external ON contact_channels(platform, external_id);
+
+CREATE TABLE IF NOT EXISTS contact_bind_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  target_platform TEXT,
+  target_external_id TEXT,
+  issued_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT contact_bind_tokens_unique UNIQUE (token)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_bind_tokens_contact_id ON contact_bind_tokens(contact_id);
+CREATE INDEX IF NOT EXISTS idx_contact_bind_tokens_expires ON contact_bind_tokens(expires_at);
+
+CREATE TABLE IF NOT EXISTS channel_sessions (
+  session_id TEXT PRIMARY KEY,
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  channel_config_id UUID REFERENCES bot_channel_configs(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
+  platform TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_sessions_bot_id ON channel_sessions(bot_id);
+CREATE INDEX IF NOT EXISTS idx_channel_sessions_user_id ON channel_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS containers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  container_name TEXT NOT NULL,
+  image TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'created',
+  namespace TEXT NOT NULL DEFAULT 'default',
+  auto_start BOOLEAN NOT NULL DEFAULT true,
+  host_path TEXT,
+  container_path TEXT NOT NULL DEFAULT '/data',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_started_at TIMESTAMPTZ,
+  last_stopped_at TIMESTAMPTZ,
+  CONSTRAINT containers_container_id_unique UNIQUE (container_id),
+  CONSTRAINT containers_container_name_unique UNIQUE (container_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_containers_bot_id ON containers(bot_id);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+  id TEXT PRIMARY KEY,
+  container_id TEXT NOT NULL REFERENCES containers(container_id) ON DELETE CASCADE,
+  parent_snapshot_id TEXT REFERENCES snapshots(id) ON DELETE SET NULL,
+  snapshotter TEXT NOT NULL,
+  digest TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshots_container_id ON snapshots(container_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_parent_id ON snapshots(parent_snapshot_id);
 
@@ -124,26 +288,6 @@ CREATE TABLE IF NOT EXISTS lifecycle_events (
 CREATE INDEX IF NOT EXISTS idx_lifecycle_events_container_id ON lifecycle_events(container_id);
 CREATE INDEX IF NOT EXISTS idx_lifecycle_events_event_type ON lifecycle_events(event_type);
 
-CREATE TABLE IF NOT EXISTS history (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  messages JSONB NOT NULL,
-  skills TEXT[] NOT NULL DEFAULT '{}'::text[],
-  timestamp TIMESTAMPTZ NOT NULL,
-  "user" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_history_user ON history("user");
-CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
-
-CREATE TABLE IF NOT EXISTS user_settings (
-  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  chat_model_id TEXT,
-  memory_model_id TEXT,
-  embedding_model_id TEXT,
-  max_context_load_time INTEGER NOT NULL DEFAULT 1440,
-  language TEXT NOT NULL DEFAULT 'Same as user input'
-);
-
 CREATE TABLE IF NOT EXISTS schedule (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -155,10 +299,10 @@ CREATE TABLE IF NOT EXISTS schedule (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   enabled BOOLEAN NOT NULL DEFAULT true,
   command TEXT NOT NULL,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_schedule_user_id ON schedule(user_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_bot_id ON schedule(bot_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_enabled ON schedule(enabled);
 
 CREATE TABLE IF NOT EXISTS subagents (
@@ -169,12 +313,18 @@ CREATE TABLE IF NOT EXISTS subagents (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted BOOLEAN NOT NULL DEFAULT false,
   deleted_at TIMESTAMPTZ,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
   messages JSONB NOT NULL DEFAULT '[]'::jsonb,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   skills JSONB NOT NULL DEFAULT '[]'::jsonb,
-  CONSTRAINT subagents_name_unique UNIQUE (name)
+  CONSTRAINT subagents_name_unique UNIQUE (bot_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_subagents_user_id ON subagents(user_id);
+CREATE INDEX IF NOT EXISTS idx_subagents_bot_id ON subagents(bot_id);
 CREATE INDEX IF NOT EXISTS idx_subagents_deleted ON subagents(deleted);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  max_context_load_time INTEGER NOT NULL DEFAULT 1440,
+  language TEXT NOT NULL DEFAULT 'Same as user input'
+);

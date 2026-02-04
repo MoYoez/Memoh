@@ -17,7 +17,7 @@ type Server struct {
 	logger *slog.Logger
 }
 
-func NewServer(log *slog.Logger, addr string, jwtSecret string, pingHandler *handlers.PingHandler, authHandler *handlers.AuthHandler, memoryHandler *handlers.MemoryHandler, embeddingsHandler *handlers.EmbeddingsHandler, chatHandler *handlers.ChatHandler, swaggerHandler *handlers.SwaggerHandler, providersHandler *handlers.ProvidersHandler, modelsHandler *handlers.ModelsHandler, settingsHandler *handlers.SettingsHandler, historyHandler *handlers.HistoryHandler, scheduleHandler *handlers.ScheduleHandler, subagentHandler *handlers.SubagentHandler, containerdHandler *handlers.ContainerdHandler, /* channelHandler handlers.ChannelHandler*/) *Server {
+func NewServer(log *slog.Logger, addr string, jwtSecret string, pingHandler *handlers.PingHandler, authHandler *handlers.AuthHandler, memoryHandler *handlers.MemoryHandler, embeddingsHandler *handlers.EmbeddingsHandler, chatHandler *handlers.ChatHandler, swaggerHandler *handlers.SwaggerHandler, providersHandler *handlers.ProvidersHandler, modelsHandler *handlers.ModelsHandler, settingsHandler *handlers.SettingsHandler, historyHandler *handlers.HistoryHandler, contactsHandler *handlers.ContactsHandler, scheduleHandler *handlers.ScheduleHandler, subagentHandler *handlers.SubagentHandler, containerdHandler *handlers.ContainerdHandler, channelHandler *handlers.ChannelHandler, usersHandler *handlers.UsersHandler, cliHandler *handlers.LocalChannelHandler, webHandler *handlers.LocalChannelHandler) *Server {
 	if addr == "" {
 		addr = ":8080"
 	}
@@ -75,6 +75,9 @@ func NewServer(log *slog.Logger, addr string, jwtSecret string, pingHandler *han
 	if historyHandler != nil {
 		historyHandler.Register(e)
 	}
+	if contactsHandler != nil {
+		contactsHandler.Register(e)
+	}
 	if scheduleHandler != nil {
 		scheduleHandler.Register(e)
 	}
@@ -90,9 +93,18 @@ func NewServer(log *slog.Logger, addr string, jwtSecret string, pingHandler *han
 	if containerdHandler != nil {
 		containerdHandler.Register(e)
 	}
-	// if channelHandler != nil {
-	// 	channelHandler.Register(e)
-	// }
+	if channelHandler != nil {
+		channelHandler.Register(e)
+	}
+	if usersHandler != nil {
+		usersHandler.Register(e)
+	}
+	if cliHandler != nil {
+		cliHandler.Register(e)
+	}
+	if webHandler != nil {
+		webHandler.Register(e)
+	}
 
 	return &Server{
 		echo:   e,

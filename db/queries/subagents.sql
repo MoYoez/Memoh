@@ -1,17 +1,17 @@
 -- name: CreateSubagent :one
-INSERT INTO subagents (name, description, user_id, messages, metadata, skills)
+INSERT INTO subagents (name, description, bot_id, messages, metadata, skills)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills;
+RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills;
 
 -- name: GetSubagentByID :one
-SELECT id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills
+SELECT id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills
 FROM subagents
 WHERE id = $1 AND deleted = false;
 
--- name: ListSubagentsByUser :many
-SELECT id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills
+-- name: ListSubagentsByBot :many
+SELECT id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills
 FROM subagents
-WHERE user_id = $1 AND deleted = false
+WHERE bot_id = $1 AND deleted = false
 ORDER BY created_at DESC;
 
 -- name: UpdateSubagent :one
@@ -21,21 +21,21 @@ SET name = $2,
     metadata = $4,
     updated_at = now()
 WHERE id = $1 AND deleted = false
-RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills;
+RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills;
 
 -- name: UpdateSubagentMessages :one
 UPDATE subagents
 SET messages = $2,
     updated_at = now()
 WHERE id = $1 AND deleted = false
-RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills;
+RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills;
 
 -- name: UpdateSubagentSkills :one
 UPDATE subagents
 SET skills = $2,
     updated_at = now()
 WHERE id = $1 AND deleted = false
-RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, user_id, messages, metadata, skills;
+RETURNING id, name, description, created_at, updated_at, deleted, deleted_at, bot_id, messages, metadata, skills;
 
 -- name: SoftDeleteSubagent :exec
 UPDATE subagents

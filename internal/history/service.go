@@ -30,26 +30,31 @@ func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	}
 }
 
-func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) (Record, error) {
+func (s *Service) Create(ctx context.Context, botID, sessionID string, req CreateRequest) (Record, error) {
 	if len(req.Messages) == 0 {
 		return Record{}, fmt.Errorf("messages are required")
 	}
-	pgID, err := parseUUID(userID)
+	botUUID, err := parseUUID(botID)
 	if err != nil {
 		return Record{}, err
+	}
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return Record{}, fmt.Errorf("session id is required")
 	}
 	payload, err := json.Marshal(req.Messages)
 	if err != nil {
 		return Record{}, err
 	}
 	row, err := s.queries.CreateHistory(ctx, sqlc.CreateHistoryParams{
-		Messages: payload,
-		Skills:   normalizeSkills(req.Skills),
+		BotID:     botUUID,
+		SessionID: trimmedSession,
+		Messages:  payload,
+		Skills:    normalizeSkills(req.Skills),
 		Timestamp: pgtype.Timestamptz{
 			Time:  time.Now().UTC(),
 			Valid: true,
 		},
-		User: pgID,
 	})
 	if err != nil {
 		return Record{}, err
@@ -72,17 +77,53 @@ func (s *Service) Get(ctx context.Context, id string) (Record, error) {
 	return toRecord(row)
 }
 
-func (s *Service) List(ctx context.Context, userID string, limit int) ([]Record, error) {
-	pgID, err := parseUUID(userID)
+func (s *Service) List(ctx context.Context, botID, sessionID string, limit int) ([]Record, error) {
+	botUUID, err := parseUUID(botID)
 	if err != nil {
 		return nil, err
+	}
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return nil, fmt.Errorf("session id is required")
 	}
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
-	rows, err := s.queries.ListHistoryByUser(ctx, sqlc.ListHistoryByUserParams{
-		User:  pgID,
-		Limit: int32(limit),
+	rows, err := s.queries.ListHistoryByBotSession(ctx, sqlc.ListHistoryByBotSessionParams{
+		BotID:     botUUID,
+		SessionID: trimmedSession,
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]Record, 0, len(rows))
+	for _, row := range rows {
+		record, err := toRecord(row)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, record)
+	}
+	return items, nil
+}
+
+func (s *Service) ListBySessionSince(ctx context.Context, botID, sessionID string, since time.Time) ([]Record, error) {
+	botUUID, err := parseUUID(botID)
+	if err != nil {
+		return nil, err
+	}
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
+	rows, err := s.queries.ListHistoryByBotSessionSince(ctx, sqlc.ListHistoryByBotSessionSinceParams{
+		BotID:     botUUID,
+		SessionID: trimmedSession,
+		Timestamp: pgtype.Timestamptz{
+			Time:  since,
+			Valid: true,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -106,12 +147,19 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.queries.DeleteHistoryByID(ctx, pgID)
 }
 
-func (s *Service) DeleteByUser(ctx context.Context, userID string) error {
-	pgID, err := parseUUID(userID)
+func (s *Service) DeleteBySession(ctx context.Context, botID, sessionID string) error {
+	botUUID, err := parseUUID(botID)
 	if err != nil {
 		return err
 	}
-	return s.queries.DeleteHistoryByUser(ctx, pgID)
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return fmt.Errorf("session id is required")
+	}
+	return s.queries.DeleteHistoryByBotSession(ctx, sqlc.DeleteHistoryByBotSessionParams{
+		BotID:     botUUID,
+		SessionID: trimmedSession,
+	})
 }
 
 func toRecord(row sqlc.History) (Record, error) {
@@ -134,12 +182,13 @@ func toRecord(row sqlc.History) (Record, error) {
 			record.ID = id.String()
 		}
 	}
-	if row.User.Valid {
-		uid, err := uuid.FromBytes(row.User.Bytes[:])
+	if row.BotID.Valid {
+		uid, err := uuid.FromBytes(row.BotID.Bytes[:])
 		if err == nil {
-			record.UserID = uid.String()
+			record.BotID = uid.String()
 		}
 	}
+	record.SessionID = row.SessionID
 	return record, nil
 }
 
@@ -170,4 +219,3 @@ func parseUUID(id string) (pgtype.UUID, error) {
 	copy(pgID.Bytes[:], parsed[:])
 	return pgID, nil
 }
-

@@ -7,15 +7,12 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/robfig/cron/v3"
 
-	"github.com/memohai/memoh/internal/auth"
-	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
 
@@ -23,21 +20,21 @@ type Service struct {
 	queries   *sqlc.Queries
 	cron      *cron.Cron
 	parser    cron.Parser
-	chat      *chat.Resolver
+	triggerer Triggerer
 	jwtSecret string
 	logger    *slog.Logger
 	mu        sync.Mutex
 	jobs      map[string]cron.EntryID
 }
 
-func NewService(log *slog.Logger, queries *sqlc.Queries, chatResolver *chat.Resolver, jwtSecret string) *Service {
+func NewService(log *slog.Logger, queries *sqlc.Queries, triggerer Triggerer, jwtSecret string) *Service {
 	parser := cron.NewParser(cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	c := cron.New(cron.WithParser(parser))
 	service := &Service{
 		queries:   queries,
 		cron:      c,
 		parser:    parser,
-		chat:      chatResolver,
+		triggerer: triggerer,
 		jwtSecret: jwtSecret,
 		logger:    log.With(slog.String("service", "schedule")),
 		jobs:      map[string]cron.EntryID{},
@@ -62,7 +59,7 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) (Schedule, error) {
+func (s *Service) Create(ctx context.Context, botID string, req CreateRequest) (Schedule, error) {
 	if s.queries == nil {
 		return Schedule{}, fmt.Errorf("schedule queries not configured")
 	}
@@ -72,7 +69,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	if _, err := s.parser.Parse(req.Pattern); err != nil {
 		return Schedule{}, fmt.Errorf("invalid cron pattern: %w", err)
 	}
-	pgUserID, err := parseUUID(userID)
+	pgBotID, err := parseUUID(botID)
 	if err != nil {
 		return Schedule{}, err
 	}
@@ -91,7 +88,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 		MaxCalls:    maxCalls,
 		Enabled:     enabled,
 		Command:     req.Command,
-		UserID:      pgUserID,
+		BotID:       pgBotID,
 	})
 	if err != nil {
 		return Schedule{}, err
@@ -119,12 +116,12 @@ func (s *Service) Get(ctx context.Context, id string) (Schedule, error) {
 	return toSchedule(row), nil
 }
 
-func (s *Service) List(ctx context.Context, userID string) ([]Schedule, error) {
-	pgUserID, err := parseUUID(userID)
+func (s *Service) List(ctx context.Context, botID string) ([]Schedule, error) {
+	pgBotID, err := parseUUID(botID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.queries.ListSchedulesByUser(ctx, pgUserID)
+	rows, err := s.queries.ListSchedulesByBot(ctx, pgBotID)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +201,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Service) Trigger(ctx context.Context, scheduleID string) error {
-	if s.chat == nil {
-		return fmt.Errorf("chat resolver not configured")
+	if s.triggerer == nil {
+		return fmt.Errorf("schedule triggerer not configured")
 	}
 	schedule, err := s.Get(ctx, scheduleID)
 	if err != nil {
@@ -218,8 +215,8 @@ func (s *Service) Trigger(ctx context.Context, scheduleID string) error {
 }
 
 func (s *Service) runSchedule(ctx context.Context, schedule Schedule) error {
-	if s.chat == nil {
-		return fmt.Errorf("chat resolver not configured")
+	if s.triggerer == nil {
+		return fmt.Errorf("schedule triggerer not configured")
 	}
 	updated, err := s.queries.IncrementScheduleCalls(ctx, toUUID(schedule.ID))
 	if err != nil {
@@ -229,12 +226,7 @@ func (s *Service) runSchedule(ctx context.Context, schedule Schedule) error {
 		s.removeJob(schedule.ID)
 	}
 	token := ""
-	if s.jwtSecret != "" {
-		if signed, _, err := auth.GenerateToken(schedule.UserID, s.jwtSecret, 10*time.Minute); err == nil {
-			token = "Bearer " + signed
-		}
-	}
-	if err := s.chat.TriggerSchedule(ctx, schedule.UserID, chat.SchedulePayload{
+	if err := s.triggerer.TriggerSchedule(ctx, schedule.BotID, TriggerPayload{
 		ID:          schedule.ID,
 		Name:        schedule.Name,
 		Description: schedule.Description,
@@ -295,7 +287,7 @@ func toSchedule(row sqlc.Schedule) Schedule {
 		CurrentCalls: int(row.CurrentCalls),
 		Enabled:      row.Enabled,
 		Command:      row.Command,
-		UserID:       toUUIDString(row.UserID),
+		BotID:        toUUIDString(row.BotID),
 	}
 	if row.MaxCalls.Valid {
 		max := int(row.MaxCalls.Int32)
@@ -339,4 +331,3 @@ func toUUIDString(value pgtype.UUID) string {
 	}
 	return id.String()
 }
-

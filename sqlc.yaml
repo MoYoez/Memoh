@@ -1,8 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema:
-      - "db/migrations/0001_init.up.sql"
+    schema: "db/migrations"
     queries: "db/queries"
     gen:
       go:
@@ -10,3 +9,6 @@ sql:
         out: "internal/db/sqlc"
         sql_package: "pgx/v5"
         emit_json_tags: true
+        overrides:
+          - db_type: "user_role"
+            go_type: "string"

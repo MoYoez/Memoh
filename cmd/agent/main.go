@@ -3,15 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
 
-	// "github.com/memohai/memoh/internal/channel"
+	"github.com/memohai/memoh/internal/bots"
+	"github.com/memohai/memoh/internal/channel"
+	"github.com/memohai/memoh/internal/channel/adapters/feishu"
+	"github.com/memohai/memoh/internal/channel/adapters/local"
+	"github.com/memohai/memoh/internal/channel/adapters/telegram"
 	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/config"
+	"github.com/memohai/memoh/internal/contacts"
 	ctr "github.com/memohai/memoh/internal/containerd"
 	"github.com/memohai/memoh/internal/db"
 	dbsqlc "github.com/memohai/memoh/internal/db/sqlc"
@@ -23,10 +27,12 @@ import (
 	"github.com/memohai/memoh/internal/memory"
 	"github.com/memohai/memoh/internal/models"
 	"github.com/memohai/memoh/internal/providers"
+	"github.com/memohai/memoh/internal/router"
 	"github.com/memohai/memoh/internal/schedule"
 	"github.com/memohai/memoh/internal/server"
 	"github.com/memohai/memoh/internal/settings"
 	"github.com/memohai/memoh/internal/subagent"
+	"github.com/memohai/memoh/internal/users"
 	"github.com/memohai/memoh/internal/version"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -34,7 +40,7 @@ import (
 )
 
 func main() {
-	log.Printf("Starting Memoh Agent %s", version.GetInfo())
+	fmt.Printf("Starting Memoh Agent %s\n", version.GetInfo())
 	ctx := context.Background()
 	cfgPath := os.Getenv("CONFIG_PATH")
 	cfg, err := config.Load(cfgPath)
@@ -87,13 +93,15 @@ func main() {
 	manager.WithDB(conn)
 	queries := dbsqlc.New(conn)
 	modelsService := models.NewService(logger.L, queries)
+	botService := bots.NewService(logger.L, queries)
+	usersService := users.NewService(logger.L, queries)
 
 	if err := ensureAdminUser(ctx, logger.L, queries, cfg); err != nil {
 		logger.Error("ensure admin user", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	authHandler := handlers.NewAuthHandler(logger.L, conn, cfg.Auth.JWTSecret, jwtExpiresIn)
+	authHandler := handlers.NewAuthHandler(logger.L, usersService, cfg.Auth.JWTSecret, jwtExpiresIn)
 
 	// Initialize chat resolver after memory service is configured.
 	var chatResolver *chat.Resolver
@@ -117,45 +125,55 @@ func main() {
 	if hasEmbeddingModels && multimodalModel.ModelID == "" {
 		logger.Warn("No multimodal embedding model configured. Multimodal embedding features will be limited.")
 	}
-
 	store := buildQdrantStore(logger.L, cfg.Qdrant, vectors, hasEmbeddingModels, textModel.Dimensions)
 
 	bm25Indexer := memory.NewBM25Indexer(logger.L)
 	memoryService := memory.NewService(logger.L, llmClient, textEmbedder, store, resolver, bm25Indexer, textModel.ModelID, multimodalModel.ModelID)
-	memoryHandler := handlers.NewMemoryHandler(logger.L, memoryService)
+	memoryHandler := handlers.NewMemoryHandler(logger.L, memoryService, botService, usersService)
 	go func() {
 		if err := memoryService.WarmupBM25(ctx, 200); err != nil {
 			logger.Warn("bm25 warmup failed", slog.Any("error", err))
 		}
 	}()
-	chatResolver = chat.NewResolver(logger.L, modelsService, queries, memoryService, cfg.AgentGateway.BaseURL(), 30*time.Second)
-	embeddingsHandler := handlers.NewEmbeddingsHandler(logger.L, modelsService, queries)
-	swaggerHandler := handlers.NewSwaggerHandler(logger.L)
-	chatHandler := handlers.NewChatHandler(logger.L, chatResolver)
 
 	// Initialize providers and models handlers
 	providersService := providers.NewService(logger.L, queries)
 	providersHandler := handlers.NewProvidersHandler(logger.L, providersService, modelsService)
 	settingsService := settings.NewService(logger.L, queries)
-	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService)
+	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService, botService, usersService)
 	modelsHandler := handlers.NewModelsHandler(logger.L, modelsService, settingsService)
 	historyService := history.NewService(logger.L, queries)
-	historyHandler := handlers.NewHistoryHandler(logger.L, historyService)
-	// channelService := channel.NewService(queries)
-	// channelManager := channel.NewManager(channelService, chatResolver)
-	// channelManager.RegisterAdapter(channel.NewTelegramAdapter())
-	// channelManager.RegisterAdapter(channel.NewFeishuAdapter())
-	// channelManager.Start(ctx)
-	// channelHandler := handlers.NewChannelHandler(channelService, channelManager)
-	scheduleService := schedule.NewService(logger.L, queries, chatResolver, cfg.Auth.JWTSecret)
+	historyHandler := handlers.NewHistoryHandler(logger.L, historyService, botService, usersService)
+	contactsService := contacts.NewService(queries)
+	contactsHandler := handlers.NewContactsHandler(contactsService, botService, usersService)
+
+	chatResolver = chat.NewResolver(logger.L, modelsService, queries, memoryService, historyService, settingsService, cfg.AgentGateway.BaseURL(), 120*time.Second)
+	embeddingsHandler := handlers.NewEmbeddingsHandler(logger.L, modelsService, queries)
+	swaggerHandler := handlers.NewSwaggerHandler(logger.L)
+	chatHandler := handlers.NewChatHandler(logger.L, chatResolver, botService, usersService)
+	channelService := channel.NewService(queries)
+	channelRouter := router.NewChannelInboundProcessor(logger.L, channelService, chatResolver, contactsService, settingsService, cfg.Auth.JWTSecret, 5*time.Minute)
+	channelManager := channel.NewManager(logger.L, channelService, channelRouter)
+	sessionHub := channel.NewSessionHub()
+	channelManager.RegisterAdapter(telegram.NewTelegramAdapter(logger.L))
+	channelManager.RegisterAdapter(feishu.NewFeishuAdapter(logger.L))
+	channelManager.RegisterAdapter(local.NewCLIAdapter(sessionHub))
+	channelManager.RegisterAdapter(local.NewWebAdapter(sessionHub))
+	channelManager.Start(ctx)
+	channelHandler := handlers.NewChannelHandler(channelService)
+	usersHandler := handlers.NewUsersHandler(logger.L, usersService, botService, channelService, channelManager)
+	cliHandler := handlers.NewLocalChannelHandler(channel.ChannelCLI, channelManager, channelService, sessionHub, botService, usersService)
+	webHandler := handlers.NewLocalChannelHandler(channel.ChannelWeb, channelManager, channelService, sessionHub, botService, usersService)
+	scheduleGateway := chat.NewScheduleGateway(chatResolver)
+	scheduleService := schedule.NewService(logger.L, queries, scheduleGateway, cfg.Auth.JWTSecret)
 	if err := scheduleService.Bootstrap(ctx); err != nil {
 		logger.Error("schedule bootstrap", slog.Any("error", err))
 		os.Exit(1)
 	}
-	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService)
+	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService, botService, usersService)
 	subagentService := subagent.NewService(logger.L, queries)
-	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService)
-	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, scheduleHandler, subagentHandler, containerdHandler /*channelHandler*/)
+	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService, botService, usersService)
+	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, contactsHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler, usersHandler, cliHandler, webHandler)
 
 	if err := srv.Start(); err != nil {
 		logger.Error("server failed", slog.Any("error", err))

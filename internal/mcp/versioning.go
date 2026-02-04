@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/memohai/memoh/internal/config"
@@ -209,23 +211,16 @@ func (m *Manager) safeStopTask(ctx context.Context, containerID string) error {
 	return err
 }
 
-func (m *Manager) ensureDBRecords(ctx context.Context, userID, containerID, runtime, imageRef string) (pgtype.UUID, error) {
-	hostPath, err := m.DataDir(userID)
+func (m *Manager) ensureDBRecords(ctx context.Context, botID, containerID, runtime, imageRef string) (pgtype.UUID, error) {
+	hostPath, err := m.DataDir(botID)
 	if err != nil {
 		return pgtype.UUID{}, err
 	}
-	dataRoot := pgtype.Text{String: hostPath, Valid: hostPath != ""}
-	user, err := m.queries.UpsertUserByUsername(ctx, dbsqlc.UpsertUserByUsernameParams{
-		Username:     userID,
-		Email:        pgtype.Text{},
-		PasswordHash: "mcp",
-		Role:         "member",
-		DisplayName:  pgtype.Text{},
-		AvatarUrl:    pgtype.Text{},
-		IsActive:     true,
-		DataRoot:     dataRoot,
-	})
+	botUUID, err := parseUUID(botID)
 	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	if _, err := m.queries.GetBotByID(ctx, botUUID); err != nil {
 		return pgtype.UUID{}, err
 	}
 
@@ -235,7 +230,7 @@ func (m *Manager) ensureDBRecords(ctx context.Context, userID, containerID, runt
 	}
 
 	if err := m.queries.UpsertContainer(ctx, dbsqlc.UpsertContainerParams{
-		UserID:        user.ID,
+		BotID:         botUUID,
 		ContainerID:   containerID,
 		ContainerName: containerID,
 		Image:         imageRef,
@@ -250,7 +245,7 @@ func (m *Manager) ensureDBRecords(ctx context.Context, userID, containerID, runt
 		return pgtype.UUID{}, err
 	}
 
-	return user.ID, nil
+	return botUUID, nil
 }
 
 func (m *Manager) insertVersion(ctx context.Context, containerID, snapshotID, snapshotter string) (string, int, time.Time, error) {
@@ -311,4 +306,15 @@ func (m *Manager) insertEvent(ctx context.Context, containerID, eventType string
 		EventType:   eventType,
 		Payload:     b,
 	})
+}
+
+func parseUUID(id string) (pgtype.UUID, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("invalid UUID: %w", err)
+	}
+	var pgID pgtype.UUID
+	pgID.Valid = true
+	copy(pgID.Bytes[:], parsed[:])
+	return pgID, nil
 }

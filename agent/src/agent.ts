@@ -1,4 +1,4 @@
-import { generateText, ModelMessage, stepCountIs, streamText, TextStreamPart, ToolSet } from 'ai'
+import { generateText, ModelMessage, stepCountIs, streamText, TextStreamPart, ToolChoice, ToolSet } from 'ai'
 import { createChatGateway } from './gateway'
 import { AgentSkill, BaseModelConfig, Schedule } from './types'
 import { system, schedule } from './prompts'
@@ -9,10 +9,13 @@ import { subagentSystem } from './prompts/subagent'
 import { getSubagentTools } from './tools/subagent'
 import { getSkillTools } from './tools/skill'
 import { getMemoryTools } from './tools/memory'
+import { getMessageTools } from './tools/message'
+import { getContactTools } from './tools/contact'
 
 export enum AgentAction {
   WebSearch = 'web_search',
   Message = 'message',
+  Contact = 'contact',
   Subagent = 'subagent',
   Schedule = 'schedule',
   Skill = 'skill',
@@ -31,6 +34,8 @@ export interface AgentParams extends BaseModelConfig {
   skills?: AgentSkill[]
   useSkills?: string[]
   allowed?: AgentAction[]
+  toolContext?: ToolContext
+  toolChoice?: unknown
 }
 
 export interface AgentInput {
@@ -41,6 +46,47 @@ export interface AgentInput {
 export interface AgentResult {
   messages: ModelMessage[]
   skills: string[]
+}
+
+export interface ToolContext {
+  botId?: string
+  sessionId?: string
+  currentPlatform?: string
+  replyTarget?: string
+  sessionToken?: string
+  contactId?: string
+  contactName?: string
+  contactAlias?: string
+  userId?: string
+}
+
+const withToolLogging = (tools: ToolSet): ToolSet => {
+  const wrapped: ToolSet = {}
+  for (const [name, entry] of Object.entries(tools)) {
+    const tool = entry as {
+      execute?: (input: unknown) => Promise<unknown>
+    }
+    if (!tool?.execute) {
+      wrapped[name] = entry
+      continue
+    }
+    const wrappedTool = {
+      ...(entry as Record<string, unknown>),
+      execute: async (input: unknown) => {
+        console.log('[Tool] call', { name, input })
+        try {
+          const result = await tool.execute?.(input)
+          console.log('[Tool] result', { name })
+          return result
+        } catch (error) {
+          console.error('[Tool] error', { name, error })
+          throw error
+        }
+      },
+    }
+    wrapped[name] = wrappedTool as unknown as ToolSet[string]
+  }
+  return wrapped
 }
 
 export const createAgent = (
@@ -105,8 +151,24 @@ export const createAgent = (
       const memoryTools = getMemoryTools({ fetch: fetcher })
       Object.assign(tools, memoryTools)
     }
+
+    if (allowedActions.includes(AgentAction.Message)) {
+      const messageTools = getMessageTools({
+        fetch: fetcher,
+        toolContext: params.toolContext,
+      })
+      Object.assign(tools, messageTools)
+    }
+
+    if (allowedActions.includes(AgentAction.Contact)) {
+      const contactTools = getContactTools({
+        fetch: fetcher,
+        toolContext: params.toolContext,
+      })
+      Object.assign(tools, contactTools)
+    }
     
-    return tools
+    return withToolLogging(tools)
   }
 
   const generateSystem = () => {
@@ -119,17 +181,34 @@ export const createAgent = (
       currentPlatform: params.currentPlatform,
       skills: params.skills ?? [],
       enabledSkills,
+      toolContext: params.toolContext,
     })
   }
 
-  const ask = async (input: AgentInput): Promise<AgentResult> => {
-    messages.push(...input.messages)
-    const user: ModelMessage = {
-      role: 'user',
-      content: input.query,
+  const shouldForceAutoToolChoice = (error: unknown) => {
+    const message = error instanceof Error
+      ? error.message
+      : String(error ?? '')
+    if (
+      message.includes('Tool choice must be auto')
+      || message.includes('tool_choice')
+      || message.includes('No endpoints found that support the provided')
+    ) {
+      return true
     }
-    messages.push(user)
-    const { response } = await generateText({
+    if (error instanceof Error && error.cause) {
+      const causeMessage = error.cause instanceof Error
+        ? error.cause.message
+        : String(error.cause)
+      return causeMessage.includes('Tool choice must be auto')
+    }
+    return false
+  }
+
+  const buildCallSettings = (toolChoice?: unknown) => {
+    const tools = getTools()
+    console.log('[Agent] tools available:', Object.keys(tools))
+    return {
       model: gateway({
         apiKey: params.apiKey,
         baseURL: params.baseUrl,
@@ -142,8 +221,31 @@ export const createAgent = (
           system: generateSystem(),
         }
       },
-      tools: getTools(),
-    })
+      tools,
+      toolChoice: toolChoice as ToolChoice<ToolSet> | undefined,
+    }
+  }
+
+  const ask = async (input: AgentInput): Promise<AgentResult> => {
+    messages.push(...input.messages)
+    const user: ModelMessage = {
+      role: 'user',
+      content: input.query,
+    }
+    messages.push(user)
+    let response
+    try {
+      const result = await generateText(buildCallSettings(params.toolChoice))
+      response = result.response
+    } catch (error) {
+      if (params.toolChoice && shouldForceAutoToolChoice(error)) {
+        console.warn('[Chat] toolChoice rejected, fallback to auto')
+        const result = await generateText(buildCallSettings('auto'))
+        response = result.response
+      } else {
+        throw error
+      }
+    }
     return {
       messages: [user, ...response.messages],
       skills: enabledSkills.map((s) => s.name),
@@ -191,21 +293,22 @@ export const createAgent = (
       content: input.query,
     }
     messages.push(user)
-    const { response, fullStream } = streamText({
-      model: gateway({
-        apiKey: params.apiKey,
-        baseURL: params.baseUrl,
-      })(params.model),
-      system: generateSystem(),
-      stopWhen: stepCountIs(maxSteps),
-      messages,
-      prepareStep: () => {
-        return {
-          system: generateSystem(),
-        }
-      },
-      tools: getTools(),
-    })
+    let response
+    let fullStream
+    try {
+      const result = streamText(buildCallSettings(params.toolChoice))
+      response = result.response
+      fullStream = result.fullStream
+    } catch (error) {
+      if (params.toolChoice && shouldForceAutoToolChoice(error)) {
+        console.warn('[Chat] toolChoice rejected, fallback to auto')
+        const result = streamText(buildCallSettings('auto'))
+        response = result.response
+        fullStream = result.fullStream
+      } else {
+        throw error
+      }
+    }
     for await (const event of fullStream) {
       yield event
     }

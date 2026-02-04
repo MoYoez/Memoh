@@ -28,28 +28,19 @@ import { useChatList } from '@/store/ChatList'
 import { onBeforeRouteLeave } from 'vue-router'
 import { storeToRefs } from 'pinia'
 // 模拟一下数据
-const {chatList,add} = useChatList()
+const {chatList,sendMessage} = useChatList()
 const { loading}=storeToRefs(useChatList())
 const chatSay = inject('chatSay', ref(''))
 // 模拟一下对话
-watch(chatSay, () => {
+watch(chatSay, async () => {
   if (chatSay.value) {
-    add({
-      description: chatSay.value,
-      time: new Date(),
-      action: 'user',
-      id: 1
-    })
-   
-    add({
-      description: '',
-      time: new Date(),
-      action: 'robot',
-      id: 2,
-      type: 'Openai Gpt5',
-      state:'thinking'
-    })   
-    chatSay.value=''
+    const text = chatSay.value
+    chatSay.value = ''
+    try {
+      await sendMessage(text)
+    } catch {
+      // ignore errors for now
+    }
   }
 }, {
   immediate: true

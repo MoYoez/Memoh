@@ -1,20 +1,27 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/auth"
+	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/memory"
+	"github.com/memohai/memoh/internal/users"
 )
 
 type MemoryHandler struct {
-	service *memory.Service
-	logger  *slog.Logger
+	service     *memory.Service
+	botService  *bots.Service
+	userService *users.Service
+	logger      *slog.Logger
 }
 
 type memoryAddPayload struct {
@@ -51,15 +58,17 @@ type memoryDeleteAllPayload struct {
 	RunID string `json:"run_id,omitempty"`
 }
 
-func NewMemoryHandler(log *slog.Logger, service *memory.Service) *MemoryHandler {
+func NewMemoryHandler(log *slog.Logger, service *memory.Service, botService *bots.Service, userService *users.Service) *MemoryHandler {
 	return &MemoryHandler{
-		service: service,
-		logger:  log.With(slog.String("handler", "memory")),
+		service:     service,
+		botService:  botService,
+		userService: userService,
+		logger:      log.With(slog.String("handler", "memory")),
 	}
 }
 
 func (h *MemoryHandler) Register(e *echo.Echo) {
-	group := e.Group("/memory")
+	group := e.Group("/bots/:bot_id/memory")
 	group.POST("/add", h.Add)
 	group.POST("/embed", h.EmbedUpsert)
 	group.POST("/search", h.Search)
@@ -85,7 +94,7 @@ func (h *MemoryHandler) checkService() error {
 // @Success 200 {object} memory.EmbedUpsertResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/embed [post]
+// @Router /bots/{bot_id}/memory/embed [post]
 func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -95,21 +104,33 @@ func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
 
 	var payload memoryEmbedUpsertPayload
 	if err := c.Bind(&payload); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	req := memory.EmbedUpsertRequest{
-		Type:     payload.Type,
-		Provider: payload.Provider,
-		Model:    payload.Model,
-		Input:    payload.Input,
-		Source:   payload.Source,
-		UserID:   userID,
-		RunID:    payload.RunID,
-		Metadata: payload.Metadata,
-		Filters:  payload.Filters,
+		Type:      payload.Type,
+		Provider:  payload.Provider,
+		Model:     payload.Model,
+		Input:     payload.Input,
+		Source:    payload.Source,
+		BotID:     botID,
+		SessionID: sessionID,
+		RunID:     payload.RunID,
+		Metadata:  payload.Metadata,
+		Filters:   payload.Filters,
 	}
 
 	resp, err := h.service.EmbedUpsert(c.Request().Context(), req)
@@ -127,7 +148,7 @@ func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
 // @Success 200 {object} memory.SearchResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/add [post]
+// @Router /bots/{bot_id}/memory/add [post]
 func (h *MemoryHandler) Add(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -137,6 +158,17 @@ func (h *MemoryHandler) Add(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
 
 	var payload memoryAddPayload
 	if err := c.Bind(&payload); err != nil {
@@ -145,7 +177,8 @@ func (h *MemoryHandler) Add(c echo.Context) error {
 	req := memory.AddRequest{
 		Message:          payload.Message,
 		Messages:         payload.Messages,
-		UserID:           userID,
+		BotID:            botID,
+		SessionID:        sessionID,
 		RunID:            payload.RunID,
 		Metadata:         payload.Metadata,
 		Filters:          payload.Filters,
@@ -168,7 +201,7 @@ func (h *MemoryHandler) Add(c echo.Context) error {
 // @Success 200 {object} memory.SearchResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/search [post]
+// @Router /bots/{bot_id}/memory/search [post]
 func (h *MemoryHandler) Search(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -178,6 +211,17 @@ func (h *MemoryHandler) Search(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
 
 	var payload memorySearchPayload
 	if err := c.Bind(&payload); err != nil {
@@ -185,7 +229,8 @@ func (h *MemoryHandler) Search(c echo.Context) error {
 	}
 	req := memory.SearchRequest{
 		Query:            payload.Query,
-		UserID:           userID,
+		BotID:            botID,
+		SessionID:        sessionID,
 		RunID:            payload.RunID,
 		Limit:            payload.Limit,
 		Filters:          payload.Filters,
@@ -208,7 +253,7 @@ func (h *MemoryHandler) Search(c echo.Context) error {
 // @Success 200 {object} memory.MemoryItem
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/update [post]
+// @Router /bots/{bot_id}/memory/update [post]
 func (h *MemoryHandler) Update(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -216,6 +261,13 @@ func (h *MemoryHandler) Update(c echo.Context) error {
 
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 
@@ -228,8 +280,8 @@ func (h *MemoryHandler) Update(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-		if existing.UserID != "" && existing.UserID != userID {
-			return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+		if existing.BotID != "" && existing.BotID != botID {
+			return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 		}
 	}
 
@@ -248,7 +300,7 @@ func (h *MemoryHandler) Update(c echo.Context) error {
 // @Success 200 {object} memory.MemoryItem
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/memories/{memoryId} [get]
+// @Router /bots/{bot_id}/memory/memories/{memoryId} [get]
 func (h *MemoryHandler) Get(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -256,6 +308,13 @@ func (h *MemoryHandler) Get(c echo.Context) error {
 
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 
@@ -268,8 +327,8 @@ func (h *MemoryHandler) Get(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if resp.UserID != "" && resp.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if resp.BotID != "" && resp.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
 	return c.JSON(http.StatusOK, resp)
 }
@@ -283,7 +342,7 @@ func (h *MemoryHandler) Get(c echo.Context) error {
 // @Success 200 {object} memory.SearchResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/memories [get]
+// @Router /bots/{bot_id}/memory/memories [get]
 func (h *MemoryHandler) GetAll(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -293,10 +352,23 @@ func (h *MemoryHandler) GetAll(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
 
 	req := memory.GetAllRequest{
-		UserID: userID,
-		RunID:  c.QueryParam("run_id"),
+		BotID:     botID,
+		SessionID: sessionID,
+		AgentID:   c.QueryParam("agent_id"),
+		RunID:     c.QueryParam("run_id"),
 	}
 	if limit := c.QueryParam("limit"); limit != "" {
 		var parsed int
@@ -320,7 +392,7 @@ func (h *MemoryHandler) GetAll(c echo.Context) error {
 // @Success 200 {object} memory.DeleteResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/memories/{memoryId} [delete]
+// @Router /bots/{bot_id}/memory/memories/{memoryId} [delete]
 func (h *MemoryHandler) Delete(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -328,6 +400,13 @@ func (h *MemoryHandler) Delete(c echo.Context) error {
 
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 
@@ -340,8 +419,8 @@ func (h *MemoryHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if existing.UserID != "" && existing.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+	if existing.BotID != "" && existing.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
 
 	resp, err := h.service.Delete(c.Request().Context(), memoryID)
@@ -359,7 +438,7 @@ func (h *MemoryHandler) Delete(c echo.Context) error {
 // @Success 200 {object} memory.DeleteResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /memory/memories [delete]
+// @Router /bots/{bot_id}/memory/memories [delete]
 func (h *MemoryHandler) DeleteAll(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
@@ -369,14 +448,26 @@ func (h *MemoryHandler) DeleteAll(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+		return err
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
 
 	var payload memoryDeleteAllPayload
 	if err := c.Bind(&payload); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	req := memory.DeleteAllRequest{
-		UserID: userID,
-		RunID:  payload.RunID,
+		BotID:     botID,
+		SessionID: sessionID,
+		RunID:     payload.RunID,
 	}
 
 	resp, err := h.service.DeleteAll(c.Request().Context(), req)
@@ -395,4 +486,25 @@ func (h *MemoryHandler) requireUserID(c echo.Context) (string, error) {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	return userID, nil
+}
+
+func (h *MemoryHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.userService == nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
+	}
+	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	if err != nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	if err != nil {
+		if errors.Is(err, bots.ErrBotNotFound) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
+		}
+		if errors.Is(err, bots.ErrBotAccessDenied) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
+		}
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return bot, nil
 }

@@ -1,29 +1,23 @@
 package handlers
 
 import (
-	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/memohai/memoh/internal/auth"
-	"github.com/memohai/memoh/internal/db/sqlc"
+	"github.com/memohai/memoh/internal/users"
 )
 
 type AuthHandler struct {
-	db        *pgxpool.Pool
-	jwtSecret string
-	expiresIn time.Duration
-	logger    *slog.Logger
+	userService *users.Service
+	jwtSecret   string
+	expiresIn   time.Duration
+	logger      *slog.Logger
 }
 
 type LoginRequest struct {
@@ -41,12 +35,12 @@ type LoginResponse struct {
 	Username    string `json:"username"`
 }
 
-func NewAuthHandler(log *slog.Logger, db *pgxpool.Pool, jwtSecret string, expiresIn time.Duration) *AuthHandler {
+func NewAuthHandler(log *slog.Logger, userService *users.Service, jwtSecret string, expiresIn time.Duration) *AuthHandler {
 	return &AuthHandler{
-		db:        db,
-		jwtSecret: jwtSecret,
-		expiresIn: expiresIn,
-		logger:    log.With(slog.String("handler", "auth")),
+		userService: userService,
+		jwtSecret:   jwtSecret,
+		expiresIn:   expiresIn,
+		logger:      log.With(slog.String("handler", "auth")),
 	}
 }
 
@@ -65,8 +59,8 @@ func (h *AuthHandler) Register(e *echo.Echo) {
 // @Failure 500 {object} ErrorResponse
 // @Router /auth/login [post]
 func (h *AuthHandler) Login(c echo.Context) error {
-	if h.db == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "db not configured")
+	if h.userService == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "user service not configured")
 	}
 	if strings.TrimSpace(h.jwtSecret) == "" {
 		return echo.NewHTTPError(http.StatusInternalServerError, "jwt secret not configured")
@@ -84,80 +78,28 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "username and password are required")
 	}
 
-	user, err := fetchUserByIdentity(c.Request().Context(), h.db, req.Username)
+	user, err := h.userService.Login(c.Request().Context(), req.Username, req.Password)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, users.ErrInvalidCredentials) {
 			return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
+		}
+		if errors.Is(err, users.ErrInactiveUser) {
+			return echo.NewHTTPError(http.StatusUnauthorized, "user is inactive")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if !user.IsActive {
-		return echo.NewHTTPError(http.StatusUnauthorized, "user is inactive")
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
-	}
-
-	userID, err := formatUserID(user.ID)
+	token, expiresAt, err := auth.GenerateToken(user.ID, h.jwtSecret, h.expiresIn)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	token, expiresAt, err := auth.GenerateToken(userID, h.jwtSecret, h.expiresIn)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	_ = h.touchLastLogin(c.Request().Context(), user.ID)
 
 	return c.JSON(http.StatusOK, LoginResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",
 		ExpiresAt:   expiresAt.Format(time.RFC3339),
-		UserID:      userID,
+		UserID:      user.ID,
 		Username:    user.Username,
-		Role:        fmt.Sprintf("%v", user.Role),
-		DisplayName: user.DisplayName.String,
+		Role:        user.Role,
+		DisplayName: user.DisplayName,
 	})
-}
-
-func fetchUserByIdentity(ctx context.Context, db *pgxpool.Pool, identity string) (sqlc.User, error) {
-	query := `
-		SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, created_at, updated_at, last_login_at
-		FROM users
-		WHERE username = $1 OR email = $1
-	`
-	row := db.QueryRow(ctx, query, identity)
-	var user sqlc.User
-	err := row.Scan(
-		&user.ID,
-		&user.Username,
-		&user.Email,
-		&user.PasswordHash,
-		&user.Role,
-		&user.DisplayName,
-		&user.AvatarUrl,
-		&user.IsActive,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-		&user.LastLoginAt,
-	)
-	return user, err
-}
-
-func formatUserID(id pgtype.UUID) (string, error) {
-	if !id.Valid {
-		return "", fmt.Errorf("user id is invalid")
-	}
-	parsed, err := uuid.FromBytes(id.Bytes[:])
-	if err != nil {
-		return "", err
-	}
-	return parsed.String(), nil
-}
-
-func (h *AuthHandler) touchLastLogin(ctx context.Context, id pgtype.UUID) error {
-	if !id.Valid {
-		return fmt.Errorf("user id is invalid")
-	}
-	_, err := h.db.Exec(ctx, "UPDATE users SET last_login_at = now() WHERE id = $1", id)
-	return err
 }

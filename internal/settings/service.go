@@ -87,7 +87,7 @@ func (s *Service) Upsert(ctx context.Context, userID string, req UpsertRequest) 
 		current.Language = strings.TrimSpace(req.Language)
 	}
 
-	_, err = s.queries.UpsertSettings(ctx, sqlc.UpsertSettingsParams{
+	_, err = s.queries.UpsertUserSettings(ctx, sqlc.UpsertUserSettingsParams{
 		UserID:             pgID,
 		ChatModelID:        pgtype.Text{String: current.ChatModelID, Valid: current.ChatModelID != ""},
 		MemoryModelID:      pgtype.Text{String: current.MemoryModelID, Valid: current.MemoryModelID != ""},
@@ -101,15 +101,77 @@ func (s *Service) Upsert(ctx context.Context, userID string, req UpsertRequest) 
 	return current, nil
 }
 
-func (s *Service) Delete(ctx context.Context, userID string) error {
+func (s *Service) GetBot(ctx context.Context, botID string) (Settings, error) {
+	pgID, err := parseUUID(botID)
+	if err != nil {
+		return Settings{}, err
+	}
+	row, err := s.queries.GetSettingsByBotID(ctx, pgID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Settings{
+				MaxContextLoadTime: DefaultMaxContextLoadTime,
+				Language:           DefaultLanguage,
+				AllowGuest:         false,
+			}, nil
+		}
+		return Settings{}, err
+	}
+	return normalizeBotSetting(row), nil
+}
+
+func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest) (Settings, error) {
+	if s.queries == nil {
+		return Settings{}, fmt.Errorf("settings queries not configured")
+	}
+	pgID, err := parseUUID(botID)
+	if err != nil {
+		return Settings{}, err
+	}
+
+	current := Settings{
+		MaxContextLoadTime: DefaultMaxContextLoadTime,
+		Language:           DefaultLanguage,
+		AllowGuest:         false,
+	}
+	existing, err := s.queries.GetSettingsByBotID(ctx, pgID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Settings{}, err
+	}
+	if err == nil {
+		current = normalizeBotSetting(existing)
+	}
+	if req.MaxContextLoadTime != nil && *req.MaxContextLoadTime > 0 {
+		current.MaxContextLoadTime = *req.MaxContextLoadTime
+	}
+	if strings.TrimSpace(req.Language) != "" {
+		current.Language = strings.TrimSpace(req.Language)
+	}
+	if req.AllowGuest != nil {
+		current.AllowGuest = *req.AllowGuest
+	}
+
+	_, err = s.queries.UpsertBotSettings(ctx, sqlc.UpsertBotSettingsParams{
+		BotID:              pgID,
+		MaxContextLoadTime: int32(current.MaxContextLoadTime),
+		Language:           current.Language,
+		AllowGuest:         current.AllowGuest,
+	})
+	if err != nil {
+		return Settings{}, err
+	}
+	return current, nil
+}
+
+func (s *Service) Delete(ctx context.Context, botID string) error {
 	if s.queries == nil {
 		return fmt.Errorf("settings queries not configured")
 	}
-	pgID, err := parseUUID(userID)
+	pgID, err := parseUUID(botID)
 	if err != nil {
 		return err
 	}
-	return s.queries.DeleteSettingsByUserID(ctx, pgID)
+	return s.queries.DeleteSettingsByBotID(ctx, pgID)
 }
 
 func normalizeUserSetting(row sqlc.UserSetting) Settings {
@@ -119,6 +181,21 @@ func normalizeUserSetting(row sqlc.UserSetting) Settings {
 		EmbeddingModelID:   strings.TrimSpace(row.EmbeddingModelID.String),
 		MaxContextLoadTime: int(row.MaxContextLoadTime),
 		Language:           strings.TrimSpace(row.Language),
+	}
+	if settings.MaxContextLoadTime <= 0 {
+		settings.MaxContextLoadTime = DefaultMaxContextLoadTime
+	}
+	if settings.Language == "" {
+		settings.Language = DefaultLanguage
+	}
+	return settings
+}
+
+func normalizeBotSetting(row sqlc.BotSetting) Settings {
+	settings := Settings{
+		MaxContextLoadTime: int(row.MaxContextLoadTime),
+		Language:           strings.TrimSpace(row.Language),
+		AllowGuest:         row.AllowGuest,
 	}
 	if settings.MaxContextLoadTime <= 0 {
 		settings.MaxContextLoadTime = DefaultMaxContextLoadTime

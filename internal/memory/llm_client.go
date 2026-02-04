@@ -85,12 +85,21 @@ func (c *LLMClient) Decide(ctx context.Context, req DecideRequest) (DecideRespon
 		return DecideResponse{}, err
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal([]byte(removeCodeBlocks(content)), &raw); err != nil {
-		return DecideResponse{}, err
-	}
+	cleaned := removeCodeBlocks(content)
+	var memoryItems []map[string]interface{}
 
-	memoryItems := normalizeMemoryItems(raw["memory"])
+	// Try parsing as object first
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(cleaned), &raw); err == nil {
+		memoryItems = normalizeMemoryItems(raw["memory"])
+	} else {
+		// If object parsing fails, try parsing as array directly
+		var arr []interface{}
+		if err := json.Unmarshal([]byte(cleaned), &arr); err != nil {
+			return DecideResponse{}, fmt.Errorf("failed to parse LLM response: %w", err)
+		}
+		memoryItems = normalizeMemoryItems(arr)
+	}
 	actions := make([]DecisionAction, 0, len(memoryItems))
 	for _, item := range memoryItems {
 		event := strings.ToUpper(asString(item["event"]))

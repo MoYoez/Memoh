@@ -16,7 +16,7 @@ type Schedule struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	Enabled      bool      `json:"enabled"`
 	Command      string    `json:"command"`
-	UserID       string    `json:"user_id"`
+	BotID        string    `json:"bot_id"`
 }
 
 type NullableInt struct {
@@ -70,4 +70,3 @@ type UpdateRequest struct {
 type ListResponse struct {
 	Items []Schedule `json:"items"`
 }
-

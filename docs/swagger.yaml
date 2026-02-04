@@ -1,4 +1,184 @@
 definitions:
+  bots.Bot:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      is_active:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      owner_user_id:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  bots.BotMember:
+    properties:
+      bot_id:
+        type: string
+      created_at:
+        type: string
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  bots.CreateBotRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      is_active:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      type:
+        type: string
+    type: object
+  bots.ListBotsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/bots.Bot'
+        type: array
+    type: object
+  bots.ListMembersResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/bots.BotMember'
+        type: array
+    type: object
+  bots.TransferBotRequest:
+    properties:
+      owner_user_id:
+        type: string
+    type: object
+  bots.UpdateBotRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      is_active:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+    type: object
+  bots.UpsertMemberRequest:
+    properties:
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  channel.ChannelConfig:
+    properties:
+      botID:
+        type: string
+      capabilities:
+        additionalProperties: true
+        type: object
+      channelType:
+        $ref: '#/definitions/channel.ChannelType'
+      createdAt:
+        type: string
+      credentials:
+        additionalProperties: true
+        type: object
+      externalIdentity:
+        type: string
+      id:
+        type: string
+      routing:
+        additionalProperties: true
+        type: object
+      selfIdentity:
+        additionalProperties: true
+        type: object
+      status:
+        type: string
+      updatedAt:
+        type: string
+      verifiedAt:
+        type: string
+    type: object
+  channel.ChannelType:
+    enum:
+    - telegram
+    - feishu
+    - cli
+    - web
+    type: string
+    x-enum-varnames:
+    - ChannelTelegram
+    - ChannelFeishu
+    - ChannelCLI
+    - ChannelWeb
+  channel.ChannelUserBinding:
+    properties:
+      channelType:
+        $ref: '#/definitions/channel.ChannelType'
+      config:
+        additionalProperties: true
+        type: object
+      createdAt:
+        type: string
+      id:
+        type: string
+      updatedAt:
+        type: string
+      userID:
+        type: string
+    type: object
+  channel.SendRequest:
+    properties:
+      message:
+        type: string
+      to:
+        type: string
+      to_user_id:
+        type: string
+    type: object
+  channel.UpsertConfigRequest:
+    properties:
+      capabilities:
+        additionalProperties: true
+        type: object
+      credentials:
+        additionalProperties: true
+        type: object
+      external_identity:
+        type: string
+      routing:
+        additionalProperties: true
+        type: object
+      self_identity:
+        additionalProperties: true
+        type: object
+      status:
+        type: string
+      verified_at:
+        type: string
+    type: object
+  channel.UpsertUserConfigRequest:
+    properties:
+      config:
+        additionalProperties: true
+        type: object
+    type: object
   chat.AgentSkill:
     properties:
       content:
@@ -38,6 +218,11 @@ definitions:
         items:
           $ref: '#/definitions/chat.AgentSkill'
         type: array
+      toolChoice:
+        additionalProperties: {}
+        type: object
+      toolContext:
+        $ref: '#/definitions/chat.ToolContext'
       use_skills:
         items:
           type: string
@@ -60,6 +245,27 @@ definitions:
     type: object
   chat.GatewayMessage:
     additionalProperties: true
+    type: object
+  chat.ToolContext:
+    properties:
+      botId:
+        type: string
+      contactAlias:
+        type: string
+      contactId:
+        type: string
+      contactName:
+        type: string
+      currentPlatform:
+        type: string
+      replyTarget:
+        type: string
+      sessionId:
+        type: string
+      sessionToken:
+        type: string
+      userId:
+        type: string
     type: object
   handlers.ContainerInfo:
     properties:
@@ -358,6 +564,8 @@ definitions:
     type: object
   history.Record:
     properties:
+      bot_id:
+        type: string
       id:
         type: string
       messages:
@@ -365,13 +573,13 @@ definitions:
           additionalProperties: true
           type: object
         type: array
+      session_id:
+        type: string
       skills:
         items:
           type: string
         type: array
       timestamp:
-        type: string
-      user_id:
         type: string
     type: object
   memory.DeleteResponse:
@@ -401,6 +609,10 @@ definitions:
     type: object
   memory.MemoryItem:
     properties:
+      agentId:
+        type: string
+      botId:
+        type: string
       createdAt:
         type: string
       hash:
@@ -416,9 +628,9 @@ definitions:
         type: string
       score:
         type: number
-      updatedAt:
+      sessionId:
         type: string
-      userId:
+      updatedAt:
         type: string
     type: object
   memory.Message:
@@ -615,6 +827,8 @@ definitions:
     type: object
   schedule.Schedule:
     properties:
+      bot_id:
+        type: string
       command:
         type: string
       created_at:
@@ -635,8 +849,6 @@ definitions:
         type: string
       updated_at:
         type: string
-      user_id:
-        type: string
     type: object
   schedule.UpdateRequest:
     properties:
@@ -655,6 +867,8 @@ definitions:
     type: object
   settings.Settings:
     properties:
+      allow_guest:
+        type: boolean
       chat_model_id:
         type: string
       embedding_model_id:
@@ -668,6 +882,8 @@ definitions:
     type: object
   settings.UpsertRequest:
     properties:
+      allow_guest:
+        type: boolean
       chat_model_id:
         type: string
       embedding_model_id:
@@ -729,6 +945,8 @@ definitions:
     type: object
   subagent.Subagent:
     properties:
+      bot_id:
+        type: string
       created_at:
         type: string
       deleted:
@@ -755,8 +973,6 @@ definitions:
         type: array
       updated_at:
         type: string
-      user_id:
-        type: string
     type: object
   subagent.UpdateContextRequest:
     properties:
@@ -782,6 +998,83 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  users.CreateUserRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      is_active:
+        type: boolean
+      password:
+        type: string
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  users.ListUsersResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/users.User'
+        type: array
+    type: object
+  users.ResetPasswordRequest:
+    properties:
+      new_password:
+        type: string
+    type: object
+  users.UpdatePasswordRequest:
+    properties:
+      current_password:
+        type: string
+      new_password:
+        type: string
+    type: object
+  users.UpdateProfileRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+    type: object
+  users.UpdateUserRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      is_active:
+        type: boolean
+      role:
+        type: string
+    type: object
+  users.User:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_active:
+        type: boolean
+      last_login_at:
+        type: string
+      role:
+        type: string
+      updated_at:
+        type: string
+      username:
+        type: string
     type: object
 info:
   contact: {}
@@ -818,7 +1111,64 @@ paths:
       summary: Login
       tags:
       - auth
-  /chat:
+  /bots:
+    get:
+      description: List bots accessible to current user (admin can specify owner_id)
+      parameters:
+      - description: Owner user ID (admin only)
+        in: query
+        name: owner_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.ListBotsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List bots
+      tags:
+      - bots
+    post:
+      description: Create a bot user owned by current user (or admin-specified owner)
+      parameters:
+      - description: Bot payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bots.CreateBotRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/bots.Bot'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create bot user
+      tags:
+      - bots
+  /bots/{bot_id}/chat:
     post:
       consumes:
       - application/json
@@ -849,7 +1199,7 @@ paths:
       summary: Chat with AI
       tags:
       - chat
-  /chat/stream:
+  /bots/{bot_id}/chat/stream:
     post:
       consumes:
       - application/json
@@ -880,6 +1230,1263 @@ paths:
       summary: Stream chat with AI
       tags:
       - chat
+  /bots/{bot_id}/history:
+    delete:
+      description: Delete all history records for current user
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete all history records
+      tags:
+      - history
+    get:
+      description: List history records for current user
+      parameters:
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/history.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List history records
+      tags:
+      - history
+    post:
+      description: Create a history record for current user
+      parameters:
+      - description: History payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/history.CreateRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/history.Record'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create history record
+      tags:
+      - history
+  /bots/{bot_id}/history/{id}:
+    delete:
+      description: Delete a history record by ID (must belong to current user)
+      parameters:
+      - description: History ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete history record
+      tags:
+      - history
+    get:
+      description: Get a history record by ID (must belong to current user)
+      parameters:
+      - description: History ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/history.Record'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get history record
+      tags:
+      - history
+  /bots/{bot_id}/memory/add:
+    post:
+      description: 'Add memory for a user via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Add request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.memoryAddPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Add memory
+      tags:
+      - memory
+  /bots/{bot_id}/memory/embed:
+    post:
+      description: 'Embed text or multimodal input and upsert into memory store. Auth:
+        Bearer JWT determines user_id (sub or user_id).'
+      parameters:
+      - description: Embed upsert request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.memoryEmbedUpsertPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.EmbedUpsertResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Embed and upsert memory
+      tags:
+      - memory
+  /bots/{bot_id}/memory/memories:
+    delete:
+      description: 'Delete all memories for a user via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Delete all request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.memoryDeleteAllPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.DeleteResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete memories
+      tags:
+      - memory
+    get:
+      description: 'List memories for a user via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Run ID
+        in: query
+        name: run_id
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List memories
+      tags:
+      - memory
+  /bots/{bot_id}/memory/memories/{memoryId}:
+    delete:
+      description: 'Delete a memory by ID via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Memory ID
+        in: path
+        name: memoryId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.DeleteResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete memory
+      tags:
+      - memory
+    get:
+      description: 'Get a memory by ID via memory. Auth: Bearer JWT determines user_id
+        (sub or user_id).'
+      parameters:
+      - description: Memory ID
+        in: path
+        name: memoryId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.MemoryItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get memory
+      tags:
+      - memory
+  /bots/{bot_id}/memory/search:
+    post:
+      description: 'Search memories for a user via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Search request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.memorySearchPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Search memories
+      tags:
+      - memory
+  /bots/{bot_id}/memory/update:
+    post:
+      description: 'Update a memory by ID via memory. Auth: Bearer JWT determines
+        user_id (sub or user_id).'
+      parameters:
+      - description: Update request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/memory.UpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memory.MemoryItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update memory
+      tags:
+      - memory
+  /bots/{bot_id}/schedule:
+    get:
+      description: List schedules for current user
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/schedule.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List schedules
+      tags:
+      - schedule
+    post:
+      description: Create a schedule for current user
+      parameters:
+      - description: Schedule payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/schedule.CreateRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/schedule.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create schedule
+      tags:
+      - schedule
+  /bots/{bot_id}/schedule/{id}:
+    delete:
+      description: Delete a schedule by ID
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete schedule
+      tags:
+      - schedule
+    get:
+      description: Get a schedule by ID
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/schedule.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get schedule
+      tags:
+      - schedule
+    put:
+      description: Update a schedule by ID
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Schedule payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/schedule.UpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/schedule.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update schedule
+      tags:
+      - schedule
+  /bots/{bot_id}/settings:
+    delete:
+      description: Remove agent settings for current user
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete user settings
+      tags:
+      - settings
+    get:
+      description: Get agent settings for current user
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settings.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get user settings
+      tags:
+      - settings
+    post:
+      description: Update or create agent settings for current user
+      parameters:
+      - description: Settings payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/settings.UpsertRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settings.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update user settings
+      tags:
+      - settings
+    put:
+      description: Update or create agent settings for current user
+      parameters:
+      - description: Settings payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/settings.UpsertRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settings.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update user settings
+      tags:
+      - settings
+  /bots/{bot_id}/subagents:
+    get:
+      description: List subagents for current user
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List subagents
+      tags:
+      - subagent
+    post:
+      description: Create a subagent for current user
+      parameters:
+      - description: Subagent payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/subagent.CreateRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/subagent.Subagent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create subagent
+      tags:
+      - subagent
+  /bots/{bot_id}/subagents/{id}:
+    delete:
+      description: Delete a subagent by ID
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete subagent
+      tags:
+      - subagent
+    get:
+      description: Get a subagent by ID
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.Subagent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get subagent
+      tags:
+      - subagent
+    put:
+      description: Update a subagent by ID
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Subagent payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/subagent.UpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.Subagent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update subagent
+      tags:
+      - subagent
+  /bots/{bot_id}/subagents/{id}/context:
+    get:
+      description: Get a subagent's message context
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.ContextResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get subagent context
+      tags:
+      - subagent
+    put:
+      description: Update a subagent's message context
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Context payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/subagent.UpdateContextRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.ContextResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update subagent context
+      tags:
+      - subagent
+  /bots/{bot_id}/subagents/{id}/skills:
+    get:
+      description: Get a subagent's skills
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.SkillsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get subagent skills
+      tags:
+      - subagent
+    post:
+      description: Add skills to a subagent
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skills payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/subagent.AddSkillsRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.SkillsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Add subagent skills
+      tags:
+      - subagent
+    put:
+      description: Replace a subagent's skills
+      parameters:
+      - description: Subagent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skills payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/subagent.UpdateSkillsRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/subagent.SkillsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update subagent skills
+      tags:
+      - subagent
+  /bots/{id}:
+    delete:
+      description: Delete a bot user (owner/admin only)
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete bot
+      tags:
+      - bots
+    get:
+      description: Get a bot by ID (owner/admin only)
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.Bot'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get bot details
+      tags:
+      - bots
+    put:
+      description: Update bot profile (owner/admin only)
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Bot update payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bots.UpdateBotRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.Bot'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update bot details
+      tags:
+      - bots
+  /bots/{id}/channel/{platform}:
+    get:
+      description: Get bot channel configuration
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Channel platform
+        in: path
+        name: platform
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/channel.ChannelConfig'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get bot channel config
+      tags:
+      - bots
+    put:
+      description: Update bot channel configuration
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Channel platform
+        in: path
+        name: platform
+        required: true
+        type: string
+      - description: Channel config payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/channel.UpsertConfigRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/channel.ChannelConfig'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update bot channel config
+      tags:
+      - bots
+  /bots/{id}/channel/{platform}/send:
+    post:
+      description: Send a message using bot channel configuration
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Channel platform
+        in: path
+        name: platform
+        required: true
+        type: string
+      - description: Send payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/channel.SendRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Send message via bot channel
+      tags:
+      - bots
+  /bots/{id}/channel/{platform}/send_session:
+    post:
+      description: Send a message using a session-scoped token (reply only)
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Channel platform
+        in: path
+        name: platform
+        required: true
+        type: string
+      - description: Send payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/channel.SendRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Send message via bot channel session token
+      tags:
+      - bots
+  /bots/{id}/members:
+    get:
+      description: List members for a bot
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.ListMembersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List bot members
+      tags:
+      - bots
+    put:
+      description: Add or update bot member role
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Member payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bots.UpsertMemberRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.BotMember'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Upsert bot member
+      tags:
+      - bots
+  /bots/{id}/members/{user_id}:
+    delete:
+      description: Remove a member from a bot
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete bot member
+      tags:
+      - bots
+  /bots/{id}/owner:
+    put:
+      description: Transfer bot ownership to another human user
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Transfer payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bots.TransferBotRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bots.Bot'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Transfer bot owner (admin only)
+      tags:
+      - bots
   /container:
     post:
       parameters:
@@ -1153,340 +2760,6 @@ paths:
       summary: Create embeddings
       tags:
       - embeddings
-  /history:
-    delete:
-      description: Delete all history records for current user
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete all history records
-      tags:
-      - history
-    get:
-      description: List history records for current user
-      parameters:
-      - description: Limit
-        in: query
-        name: limit
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/history.ListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List history records
-      tags:
-      - history
-    post:
-      description: Create a history record for current user
-      parameters:
-      - description: History payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/history.CreateRequest'
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/history.Record'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Create history record
-      tags:
-      - history
-  /history/{id}:
-    delete:
-      description: Delete a history record by ID (must belong to current user)
-      parameters:
-      - description: History ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete history record
-      tags:
-      - history
-    get:
-      description: Get a history record by ID (must belong to current user)
-      parameters:
-      - description: History ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/history.Record'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get history record
-      tags:
-      - history
-  /memory/add:
-    post:
-      description: 'Add memory for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Add request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryAddPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Add memory
-      tags:
-      - memory
-  /memory/embed:
-    post:
-      description: 'Embed text or multimodal input and upsert into memory store. Auth:
-        Bearer JWT determines user_id (sub or user_id).'
-      parameters:
-      - description: Embed upsert request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryEmbedUpsertPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.EmbedUpsertResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Embed and upsert memory
-      tags:
-      - memory
-  /memory/memories:
-    delete:
-      description: 'Delete all memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Delete all request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryDeleteAllPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.DeleteResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete memories
-      tags:
-      - memory
-    get:
-      description: 'List memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Run ID
-        in: query
-        name: run_id
-        type: string
-      - description: Limit
-        in: query
-        name: limit
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List memories
-      tags:
-      - memory
-  /memory/memories/{memoryId}:
-    delete:
-      description: 'Delete a memory by ID via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Memory ID
-        in: path
-        name: memoryId
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.DeleteResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete memory
-      tags:
-      - memory
-    get:
-      description: 'Get a memory by ID via memory. Auth: Bearer JWT determines user_id
-        (sub or user_id).'
-      parameters:
-      - description: Memory ID
-        in: path
-        name: memoryId
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.MemoryItem'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get memory
-      tags:
-      - memory
-  /memory/search:
-    post:
-      description: 'Search memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Search request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memorySearchPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Search memories
-      tags:
-      - memory
-  /memory/update:
-    post:
-      description: 'Update a memory by ID via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Update request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/memory.UpdateRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.MemoryItem'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update memory
-      tags:
-      - memory
   /models:
     get:
       description: Get a list of all configured models, optionally filtered by type
@@ -2033,39 +3306,174 @@ paths:
       summary: Get provider by name
       tags:
       - providers
-  /schedule:
+  /users:
     get:
-      description: List schedules for current user
+      description: List users
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/schedule.ListResponse'
+            $ref: '#/definitions/users.ListUsersResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List schedules
+      summary: List users (admin only)
       tags:
-      - schedule
+      - users
     post:
-      description: Create a schedule for current user
+      description: Create a new human user account
       parameters:
-      - description: Schedule payload
+      - description: User payload
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/schedule.CreateRequest'
+          $ref: '#/definitions/users.CreateUserRequest'
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/schedule.Schedule'
+            $ref: '#/definitions/users.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create human user (admin only)
+      tags:
+      - users
+  /users/{id}:
+    get:
+      description: Get user details (self or admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get user by ID
+      tags:
+      - users
+    put:
+      description: Update user profile and status
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User update payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/users.UpdateUserRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update user (admin only)
+      tags:
+      - users
+  /users/{id}/password:
+    put:
+      description: Reset a user password
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Password payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/users.ResetPasswordRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Reset user password (admin only)
+      tags:
+      - users
+  /users/me:
+    get:
+      description: Get current user profile
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.User'
         "400":
           description: Bad Request
           schema:
@@ -2074,18 +3482,103 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Create schedule
+      summary: Get current user
       tags:
-      - schedule
-  /schedule/{id}:
-    delete:
-      description: Delete a schedule by ID
+      - users
+    put:
+      description: Update current user display name or avatar
       parameters:
-      - description: Schedule ID
+      - description: Profile payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/users.UpdateProfileRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update current user profile
+      tags:
+      - users
+  /users/me/channels/{platform}:
+    get:
+      description: Get channel binding configuration for current user
+      parameters:
+      - description: Channel platform
         in: path
-        name: id
+        name: platform
         required: true
         type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/channel.ChannelUserBinding'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get channel user config
+      tags:
+      - channel
+    put:
+      description: Update channel binding configuration for current user
+      parameters:
+      - description: Channel platform
+        in: path
+        name: platform
+        required: true
+        type: string
+      - description: Channel user config payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/channel.UpsertUserConfigRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/channel.ChannelUserBinding'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update channel user config
+      tags:
+      - channel
+  /users/me/password:
+    put:
+      description: Update current user password with current password check
+      parameters:
+      - description: Password payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/users.UpdatePasswordRequest'
       responses:
         "204":
           description: No Content
@@ -2097,443 +3590,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete schedule
+      summary: Update current user password
       tags:
-      - schedule
-    get:
-      description: Get a schedule by ID
-      parameters:
-      - description: Schedule ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/schedule.Schedule'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get schedule
-      tags:
-      - schedule
-    put:
-      description: Update a schedule by ID
-      parameters:
-      - description: Schedule ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Schedule payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/schedule.UpdateRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/schedule.Schedule'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update schedule
-      tags:
-      - schedule
-  /settings:
-    delete:
-      description: Remove agent settings for current user
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete user settings
-      tags:
-      - settings
-    get:
-      description: Get agent settings for current user
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/settings.Settings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get user settings
-      tags:
-      - settings
-    post:
-      description: Update or create agent settings for current user
-      parameters:
-      - description: Settings payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/settings.UpsertRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/settings.Settings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update user settings
-      tags:
-      - settings
-    put:
-      description: Update or create agent settings for current user
-      parameters:
-      - description: Settings payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/settings.UpsertRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/settings.Settings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update user settings
-      tags:
-      - settings
-  /subagents:
-    get:
-      description: List subagents for current user
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.ListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List subagents
-      tags:
-      - subagent
-    post:
-      description: Create a subagent for current user
-      parameters:
-      - description: Subagent payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/subagent.CreateRequest'
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/subagent.Subagent'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Create subagent
-      tags:
-      - subagent
-  /subagents/{id}:
-    delete:
-      description: Delete a subagent by ID
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete subagent
-      tags:
-      - subagent
-    get:
-      description: Get a subagent by ID
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.Subagent'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get subagent
-      tags:
-      - subagent
-    put:
-      description: Update a subagent by ID
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Subagent payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/subagent.UpdateRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.Subagent'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update subagent
-      tags:
-      - subagent
-  /subagents/{id}/context:
-    get:
-      description: Get a subagent's message context
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.ContextResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get subagent context
-      tags:
-      - subagent
-    put:
-      description: Update a subagent's message context
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Context payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/subagent.UpdateContextRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.ContextResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update subagent context
-      tags:
-      - subagent
-  /subagents/{id}/skills:
-    get:
-      description: Get a subagent's skills
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.SkillsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get subagent skills
-      tags:
-      - subagent
-    post:
-      description: Add skills to a subagent
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Skills payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/subagent.AddSkillsRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.SkillsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Add subagent skills
-      tags:
-      - subagent
-    put:
-      description: Replace a subagent's skills
-      parameters:
-      - description: Subagent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Skills payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/subagent.UpdateSkillsRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/subagent.SkillsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update subagent skills
-      tags:
-      - subagent
+      - users
 swagger: "2.0"

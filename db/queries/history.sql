@@ -1,31 +1,31 @@
 -- name: CreateHistory :one
-INSERT INTO history (messages, skills, timestamp, "user")
-VALUES ($1, $2, $3, $4)
-RETURNING id, messages, skills, timestamp, "user";
+INSERT INTO history (bot_id, session_id, messages, skills, timestamp)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, bot_id, session_id, messages, skills, timestamp;
 
--- name: ListHistoryByUserSince :many
-SELECT id, messages, skills, timestamp, "user"
+-- name: ListHistoryByBotSessionSince :many
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
-WHERE "user" = $1 AND timestamp >= $2
+WHERE bot_id = $1 AND session_id = $2 AND timestamp >= $3
 ORDER BY timestamp ASC;
 
 -- name: GetHistoryByID :one
-SELECT id, messages, skills, timestamp, "user"
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
 WHERE id = $1;
 
--- name: ListHistoryByUser :many
-SELECT id, messages, skills, timestamp, "user"
+-- name: ListHistoryByBotSession :many
+SELECT id, bot_id, session_id, messages, skills, timestamp
 FROM history
-WHERE "user" = $1
+WHERE bot_id = $1 AND session_id = $2
 ORDER BY timestamp DESC
-LIMIT $2;
+LIMIT $3;
 
 -- name: DeleteHistoryByID :exec
 DELETE FROM history
 WHERE id = $1;
 
--- name: DeleteHistoryByUser :exec
+-- name: DeleteHistoryByBotSession :exec
 DELETE FROM history
-WHERE "user" = $1;
+WHERE bot_id = $1 AND session_id = $2;
 

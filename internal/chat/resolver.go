@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,13 +13,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/memohai/memoh/internal/db/sqlc"
+	"github.com/memohai/memoh/internal/history"
 	"github.com/memohai/memoh/internal/memory"
 	"github.com/memohai/memoh/internal/models"
+	"github.com/memohai/memoh/internal/settings"
 )
 
 const defaultMaxContextMinutes = 24 * 60
@@ -29,6 +28,8 @@ type Resolver struct {
 	modelsService   *models.Service
 	queries         *sqlc.Queries
 	memoryService   *memory.Service
+	historyService  *history.Service
+	settingsService *settings.Service
 	gatewayBaseURL  string
 	timeout         time.Duration
 	logger          *slog.Logger
@@ -44,21 +45,23 @@ type userSettings struct {
 	Language           string
 }
 
-func NewResolver(log *slog.Logger, modelsService *models.Service, queries *sqlc.Queries, memoryService *memory.Service, gatewayBaseURL string, timeout time.Duration) *Resolver {
+func NewResolver(log *slog.Logger, modelsService *models.Service, queries *sqlc.Queries, memoryService *memory.Service, historyService *history.Service, settingsService *settings.Service, gatewayBaseURL string, timeout time.Duration) *Resolver {
 	if strings.TrimSpace(gatewayBaseURL) == "" {
 		gatewayBaseURL = "http://127.0.0.1:8081"
 	}
 	gatewayBaseURL = strings.TrimRight(gatewayBaseURL, "/")
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = 60 * time.Second
 	}
 	return &Resolver{
-		modelsService:  modelsService,
-		queries:        queries,
-		memoryService:  memoryService,
-		gatewayBaseURL: gatewayBaseURL,
-		timeout:        timeout,
-		logger:         log.With(slog.String("service", "chat")),
+		modelsService:   modelsService,
+		queries:         queries,
+		memoryService:   memoryService,
+		historyService:  historyService,
+		settingsService: settingsService,
+		gatewayBaseURL:  gatewayBaseURL,
+		timeout:         timeout,
+		logger:          log.With(slog.String("service", "chat")),
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -70,8 +73,11 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	if strings.TrimSpace(req.Query) == "" {
 		return ChatResponse{}, fmt.Errorf("query is required")
 	}
-	if strings.TrimSpace(req.UserID) == "" {
-		return ChatResponse{}, fmt.Errorf("user id is required")
+	if strings.TrimSpace(req.BotID) == "" {
+		return ChatResponse{}, fmt.Errorf("bot id is required")
+	}
+	if strings.TrimSpace(req.SessionID) == "" {
+		return ChatResponse{}, fmt.Errorf("session id is required")
 	}
 	skipHistory := req.MaxContextLoadTime < 0
 
@@ -88,8 +94,10 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		return ChatResponse{}, err
 	}
 
-	maxContextLoadTime := settings.MaxContextLoadTime
-	language := settings.Language
+	maxContextLoadTime, language, err := r.loadBotSettings(ctx, req.BotID)
+	if err != nil {
+		return ChatResponse{}, err
+	}
 	if req.MaxContextLoadTime > 0 {
 		maxContextLoadTime = req.MaxContextLoadTime
 	}
@@ -100,11 +108,11 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	var messages []GatewayMessage
 	var historySkills []string
 	if !skipHistory {
-		messages, err = r.loadHistoryMessages(ctx, req.UserID, maxContextLoadTime)
+		messages, err = r.loadHistoryMessages(ctx, req.BotID, req.SessionID, maxContextLoadTime)
 		if err != nil {
 			return ChatResponse{}, err
 		}
-		historySkills, err = r.loadHistorySkills(ctx, req.UserID, maxContextLoadTime)
+		historySkills, err = r.loadHistorySkills(ctx, req.BotID, req.SessionID, maxContextLoadTime)
 		if err != nil {
 			return ChatResponse{}, err
 		}
@@ -113,6 +121,7 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		messages = append(messages, req.Messages...)
 	}
 	messages = sanitizeGatewayMessages(messages)
+	messages = normalizeGatewayMessagesForModel(messages)
 	useSkills := normalizeSkills(append(historySkills, req.UseSkills...))
 
 	payload := agentGatewayRequest{
@@ -130,6 +139,8 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		Query:              req.Query,
 		Skills:             req.Skills,
 		UseSkills:          useSkills,
+		ToolContext:        req.ToolContext,
+		ToolChoice:         req.ToolChoice,
 	}
 	payload.Language = language
 
@@ -137,11 +148,12 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	resp.Messages = normalizeGatewayMessages(resp.Messages)
 
-	if err := r.storeHistory(ctx, req.UserID, req.Query, resp.Messages, resp.Skills); err != nil {
+	if err := r.storeHistory(ctx, req.BotID, req.SessionID, req.Query, resp.Messages, resp.Skills); err != nil {
 		return ChatResponse{}, err
 	}
-	if err := r.storeMemory(ctx, req.UserID, req.Query, resp.Messages); err != nil {
+	if err := r.storeMemory(ctx, req.BotID, req.SessionID, req.Query, resp.Messages); err != nil {
 		return ChatResponse{}, err
 	}
 
@@ -153,21 +165,22 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	}, nil
 }
 
-func (r *Resolver) TriggerSchedule(ctx context.Context, userID string, schedule SchedulePayload, token string) error {
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("user id is required")
+func (r *Resolver) TriggerSchedule(ctx context.Context, botID string, schedule SchedulePayload, token string) error {
+	if strings.TrimSpace(botID) == "" {
+		return fmt.Errorf("bot id is required")
 	}
 	if strings.TrimSpace(schedule.Command) == "" {
 		return fmt.Errorf("schedule command is required")
 	}
 
 	req := ChatRequest{
-		UserID:   userID,
-		Query:    schedule.Command,
-		Locale:   "",
-		Language: "",
+		BotID:     botID,
+		SessionID: "schedule:" + schedule.ID,
+		Query:     schedule.Command,
+		Locale:    "",
+		Language:  "",
 	}
-	settings, err := r.loadUserSettings(ctx, userID)
+	settings, err := r.loadUserSettings(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -180,14 +193,16 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, userID string, schedule 
 		return err
 	}
 
-	maxContextLoadTime := settings.MaxContextLoadTime
-	language := settings.Language
-
-	messages, err := r.loadHistoryMessages(ctx, userID, maxContextLoadTime)
+	maxContextLoadTime, language, err := r.loadBotSettings(ctx, botID)
 	if err != nil {
 		return err
 	}
-	historySkills, err := r.loadHistorySkills(ctx, userID, maxContextLoadTime)
+
+	messages, err := r.loadHistoryMessages(ctx, botID, req.SessionID, maxContextLoadTime)
+	if err != nil {
+		return err
+	}
+	historySkills, err := r.loadHistorySkills(ctx, botID, req.SessionID, maxContextLoadTime)
 	if err != nil {
 		return err
 	}
@@ -214,10 +229,11 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, userID string, schedule 
 	if err != nil {
 		return err
 	}
-	if err := r.storeHistory(ctx, userID, schedule.Command, resp.Messages, resp.Skills); err != nil {
+	resp.Messages = normalizeGatewayMessages(resp.Messages)
+	if err := r.storeHistory(ctx, botID, req.SessionID, schedule.Command, resp.Messages, resp.Skills); err != nil {
 		return err
 	}
-	if err := r.storeMemory(ctx, userID, schedule.Command, resp.Messages); err != nil {
+	if err := r.storeMemory(ctx, botID, req.SessionID, schedule.Command, resp.Messages); err != nil {
 		return err
 	}
 	return nil
@@ -235,8 +251,12 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 			errChan <- fmt.Errorf("query is required")
 			return
 		}
-		if strings.TrimSpace(req.UserID) == "" {
-			errChan <- fmt.Errorf("user id is required")
+		if strings.TrimSpace(req.BotID) == "" {
+			errChan <- fmt.Errorf("bot id is required")
+			return
+		}
+		if strings.TrimSpace(req.SessionID) == "" {
+			errChan <- fmt.Errorf("session id is required")
 			return
 		}
 		skipHistory := req.MaxContextLoadTime < 0
@@ -257,8 +277,11 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 			return
 		}
 
-		maxContextLoadTime := settings.MaxContextLoadTime
-		language := settings.Language
+		maxContextLoadTime, language, err := r.loadBotSettings(ctx, req.BotID)
+		if err != nil {
+			errChan <- err
+			return
+		}
 		if req.MaxContextLoadTime > 0 {
 			maxContextLoadTime = req.MaxContextLoadTime
 		}
@@ -269,12 +292,12 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 		var messages []GatewayMessage
 		var historySkills []string
 		if !skipHistory {
-			messages, err = r.loadHistoryMessages(ctx, req.UserID, maxContextLoadTime)
+			messages, err = r.loadHistoryMessages(ctx, req.BotID, req.SessionID, maxContextLoadTime)
 			if err != nil {
 				errChan <- err
 				return
 			}
-			historySkills, err = r.loadHistorySkills(ctx, req.UserID, maxContextLoadTime)
+			historySkills, err = r.loadHistorySkills(ctx, req.BotID, req.SessionID, maxContextLoadTime)
 			if err != nil {
 				errChan <- err
 				return
@@ -284,6 +307,7 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 			messages = append(messages, req.Messages...)
 		}
 		messages = sanitizeGatewayMessages(messages)
+		messages = normalizeGatewayMessagesForModel(messages)
 		useSkills := normalizeSkills(append(historySkills, req.UseSkills...))
 
 		payload := agentGatewayRequest{
@@ -301,10 +325,12 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 			Query:              req.Query,
 			Skills:             req.Skills,
 			UseSkills:          useSkills,
+			ToolContext:        req.ToolContext,
+			ToolChoice:         req.ToolChoice,
 		}
 		payload.Language = language
 
-		if err := r.streamChat(ctx, payload, req.UserID, req.Query, req.Token, chunkChan); err != nil {
+		if err := r.streamChat(ctx, payload, req.BotID, req.SessionID, req.Query, req.Token, chunkChan); err != nil {
 			errChan <- err
 			return
 		}
@@ -328,6 +354,8 @@ type agentGatewayRequest struct {
 	Query              string           `json:"query"`
 	Skills             []AgentSkill     `json:"skills,omitempty"`
 	UseSkills          []string         `json:"useSkills,omitempty"`
+	ToolContext        *ToolContext     `json:"toolContext,omitempty"`
+	ToolChoice         interface{}      `json:"toolChoice,omitempty"`
 }
 
 type agentGatewayScheduleRequest struct {
@@ -374,13 +402,18 @@ func (r *Resolver) postChat(ctx context.Context, payload agentGatewayRequest, to
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(resp.Body)
-		return agentGatewayResponse{}, fmt.Errorf("agent gateway error: %s", strings.TrimSpace(string(payload)))
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return agentGatewayResponse{}, err
 	}
 
-	var parsed agentGatewayResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return agentGatewayResponse{}, fmt.Errorf("agent gateway error: %s", strings.TrimSpace(string(respBody)))
+	}
+
+	parsed, err := parseAgentGatewayResponse(respBody)
+	if err != nil {
+		r.logger.Error("failed to parse agent gateway response", slog.String("body", string(respBody)), slog.Any("error", err))
 		return agentGatewayResponse{}, err
 	}
 	return parsed, nil
@@ -407,18 +440,24 @@ func (r *Resolver) postSchedule(ctx context.Context, payload agentGatewaySchedul
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(resp.Body)
-		return agentGatewayResponse{}, fmt.Errorf("agent gateway error: %s", strings.TrimSpace(string(payload)))
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return agentGatewayResponse{}, err
 	}
 
-	var parsed agentGatewayResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return agentGatewayResponse{}, fmt.Errorf("agent gateway error: %s", strings.TrimSpace(string(respBody)))
+	}
+
+	parsed, err := parseAgentGatewayResponse(respBody)
+	if err != nil {
+		r.logger.Error("failed to parse schedule gateway response", slog.String("body", string(respBody)), slog.Any("error", err))
 		return agentGatewayResponse{}, err
 	}
 	return parsed, nil
 }
-func (r *Resolver) streamChat(ctx context.Context, payload agentGatewayRequest, userID, query, token string, chunkChan chan<- StreamChunk) error {
+
+func (r *Resolver) streamChat(ctx context.Context, payload agentGatewayRequest, botID, sessionID, query, token string, chunkChan chan<- StreamChunk) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -472,7 +511,7 @@ func (r *Resolver) streamChat(ctx context.Context, payload agentGatewayRequest, 
 			continue
 		}
 
-		if handled, err := r.tryStoreFromStreamPayload(ctx, userID, query, currentEventType, data); err != nil {
+		if handled, err := r.tryStoreFromStreamPayload(ctx, botID, sessionID, query, currentEventType, data); err != nil {
 			return err
 		} else if handled {
 			stored = true
@@ -485,141 +524,87 @@ func (r *Resolver) streamChat(ctx context.Context, payload agentGatewayRequest, 
 	return nil
 }
 
-func (r *Resolver) loadHistoryMessages(ctx context.Context, userID string, maxContextLoadTime int) ([]GatewayMessage, error) {
-	if r.queries == nil {
-		return nil, fmt.Errorf("history queries not configured")
-	}
-	pgUserID, err := parseUUID(userID)
-	if err != nil {
-		return nil, err
+func (r *Resolver) loadHistoryMessages(ctx context.Context, botID, sessionID string, maxContextLoadTime int) ([]GatewayMessage, error) {
+	if r.historyService == nil {
+		return nil, fmt.Errorf("history service not configured")
 	}
 	from := time.Now().UTC().Add(-time.Duration(normalizeMaxContextLoad(maxContextLoadTime)) * time.Minute)
-	rows, err := r.queries.ListHistoryByUserSince(ctx, sqlc.ListHistoryByUserSinceParams{
-		User: pgUserID,
-		Timestamp: pgtype.Timestamptz{
-			Time:  from,
-			Valid: true,
-		},
-	})
+	records, err := r.historyService.ListBySessionSince(ctx, botID, sessionID, from)
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]GatewayMessage, 0, len(rows))
-	for _, row := range rows {
-		var batch []GatewayMessage
-		if len(row.Messages) == 0 {
+	messages := make([]GatewayMessage, 0, len(records))
+	for _, record := range records {
+		if len(record.Messages) == 0 {
 			continue
 		}
-		if err := json.Unmarshal(row.Messages, &batch); err != nil {
-			return nil, err
+		for _, msg := range record.Messages {
+			if msg == nil {
+				continue
+			}
+			messages = append(messages, GatewayMessage(msg))
 		}
-		messages = append(messages, batch...)
 	}
 	return messages, nil
 }
 
-func (r *Resolver) loadHistorySkills(ctx context.Context, userID string, maxContextLoadTime int) ([]string, error) {
-	if r.queries == nil {
-		return nil, fmt.Errorf("history queries not configured")
-	}
-	pgUserID, err := parseUUID(userID)
-	if err != nil {
-		return nil, err
+func (r *Resolver) loadHistorySkills(ctx context.Context, botID, sessionID string, maxContextLoadTime int) ([]string, error) {
+	if r.historyService == nil {
+		return nil, fmt.Errorf("history service not configured")
 	}
 	from := time.Now().UTC().Add(-time.Duration(normalizeMaxContextLoad(maxContextLoadTime)) * time.Minute)
-	rows, err := r.queries.ListHistoryByUserSince(ctx, sqlc.ListHistoryByUserSinceParams{
-		User: pgUserID,
-		Timestamp: pgtype.Timestamptz{
-			Time:  from,
-			Valid: true,
-		},
-	})
+	records, err := r.historyService.ListBySessionSince(ctx, botID, sessionID, from)
 	if err != nil {
 		return nil, err
 	}
-	combined := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if len(row.Skills) == 0 {
+	combined := make([]string, 0, len(records))
+	for _, record := range records {
+		if len(record.Skills) == 0 {
 			continue
 		}
-		combined = append(combined, row.Skills...)
+		combined = append(combined, record.Skills...)
 	}
 	return normalizeSkills(combined), nil
 }
 
-func (r *Resolver) storeHistory(ctx context.Context, userID, query string, responseMessages []GatewayMessage, skills []string) error {
-	if r.queries == nil {
-		return fmt.Errorf("history queries not configured")
+func (r *Resolver) storeHistory(ctx context.Context, botID, sessionID, query string, responseMessages []GatewayMessage, skills []string) error {
+	if r.historyService == nil {
+		return fmt.Errorf("history service not configured")
 	}
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("user id is required")
+	if strings.TrimSpace(botID) == "" {
+		return fmt.Errorf("bot id is required")
+	}
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return fmt.Errorf("session id is required")
 	}
 	if strings.TrimSpace(query) == "" && len(responseMessages) == 0 {
 		return nil
 	}
-	payload, err := json.Marshal(responseMessages)
-	if err != nil {
-		return err
+	messages := make([]map[string]interface{}, 0, len(responseMessages))
+	for _, msg := range responseMessages {
+		if msg == nil {
+			continue
+		}
+		messages = append(messages, map[string]interface{}(msg))
 	}
-	pgUserID, err := parseUUID(userID)
-	if err != nil {
-		return err
-	}
-	if err := r.ensureUserExists(ctx, pgUserID); err != nil {
-		return err
-	}
-	normalizedSkills := normalizeSkills(skills)
-	_, err = r.queries.CreateHistory(ctx, sqlc.CreateHistoryParams{
-		Messages: payload,
-		Skills:   normalizedSkills,
-		Timestamp: pgtype.Timestamptz{
-			Time:  time.Now().UTC(),
-			Valid: true,
-		},
-		User: pgUserID,
-	})
-	if err != nil {
-		return err
-	}
-	return err
-}
-
-func (r *Resolver) ensureUserExists(ctx context.Context, userID pgtype.UUID) error {
-	if !userID.Valid {
-		return fmt.Errorf("invalid user id")
-	}
-	if _, err := r.queries.GetUserByID(ctx, userID); err == nil {
-		return nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-
-	username := "user-" + uuid.UUID(userID.Bytes).String()
-	password := uuid.NewString()
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	_, err = r.queries.CreateUserWithID(ctx, sqlc.CreateUserWithIDParams{
-		ID:           userID,
-		Username:     username,
-		Email:        pgtype.Text{Valid: false},
-		PasswordHash: string(hashed),
-		Role:         "member",
-		DisplayName:  pgtype.Text{String: username, Valid: true},
-		AvatarUrl:    pgtype.Text{Valid: false},
-		IsActive:     true,
-		DataRoot:     pgtype.Text{Valid: false},
+	_, err := r.historyService.Create(ctx, botID, trimmedSession, history.CreateRequest{
+		Messages: messages,
+		Skills:   skills,
 	})
 	return err
 }
 
-func (r *Resolver) storeMemory(ctx context.Context, userID, query string, responseMessages []GatewayMessage) error {
+func (r *Resolver) storeMemory(ctx context.Context, botID, sessionID, query string, responseMessages []GatewayMessage) error {
 	if r.memoryService == nil {
 		return nil
 	}
-	if strings.TrimSpace(userID) == "" {
-		return fmt.Errorf("user id is required")
+	if strings.TrimSpace(botID) == "" {
+		return fmt.Errorf("bot id is required")
+	}
+	trimmedSession := strings.TrimSpace(sessionID)
+	if trimmedSession == "" {
+		return fmt.Errorf("session id is required")
 	}
 	if strings.TrimSpace(query) == "" && len(responseMessages) == 0 {
 		return nil
@@ -641,17 +626,19 @@ func (r *Resolver) storeMemory(ctx context.Context, userID, query string, respon
 	}
 
 	_, err := r.memoryService.Add(ctx, memory.AddRequest{
-		Messages: memoryMessages,
-		UserID:   userID,
+		Messages:  memoryMessages,
+		BotID:     botID,
+		SessionID: trimmedSession,
 	})
 	return err
 }
 
-func (r *Resolver) tryStoreFromStreamPayload(ctx context.Context, userID, query, eventType, data string) (bool, error) {
+func (r *Resolver) tryStoreFromStreamPayload(ctx context.Context, botID, sessionID, query, eventType, data string) (bool, error) {
 	// Case 1: event: done + data: {messages: [...]}
 	if eventType == "done" {
 		if parsed, ok := parseGatewayResponse([]byte(data)); ok {
-			return r.storeRound(ctx, userID, query, parsed.Messages, parsed.Skills)
+			parsed.Messages = normalizeGatewayMessages(parsed.Messages)
+			return r.storeRound(ctx, botID, sessionID, query, parsed.Messages, parsed.Skills)
 		}
 	}
 
@@ -663,21 +650,23 @@ func (r *Resolver) tryStoreFromStreamPayload(ctx context.Context, userID, query,
 	if err := json.Unmarshal([]byte(data), &envelope); err == nil {
 		if envelope.Type == "done" && len(envelope.Data) > 0 {
 			if parsed, ok := parseGatewayResponse(envelope.Data); ok {
-				return r.storeRound(ctx, userID, query, parsed.Messages, parsed.Skills)
+				parsed.Messages = normalizeGatewayMessages(parsed.Messages)
+				return r.storeRound(ctx, botID, sessionID, query, parsed.Messages, parsed.Skills)
 			}
 		}
 	}
 
 	// Case 3: data: {messages:[...]} without event
 	if parsed, ok := parseGatewayResponse([]byte(data)); ok {
-		return r.storeRound(ctx, userID, query, parsed.Messages, parsed.Skills)
+		parsed.Messages = normalizeGatewayMessages(parsed.Messages)
+		return r.storeRound(ctx, botID, sessionID, query, parsed.Messages, parsed.Skills)
 	}
 	return false, nil
 }
 
 func parseGatewayResponse(payload []byte) (agentGatewayResponse, bool) {
-	var parsed agentGatewayResponse
-	if err := json.Unmarshal(payload, &parsed); err != nil {
+	parsed, err := parseAgentGatewayResponse(payload)
+	if err != nil {
 		return agentGatewayResponse{}, false
 	}
 	if len(parsed.Messages) == 0 {
@@ -686,11 +675,50 @@ func parseGatewayResponse(payload []byte) (agentGatewayResponse, bool) {
 	return parsed, true
 }
 
-func (r *Resolver) storeRound(ctx context.Context, userID, query string, messages []GatewayMessage, skills []string) (bool, error) {
-	if err := r.storeHistory(ctx, userID, query, messages, skills); err != nil {
+// parseAgentGatewayResponse parses the agent gateway response with flexible message handling.
+// It can handle various message formats from different AI SDK versions.
+func parseAgentGatewayResponse(payload []byte) (agentGatewayResponse, error) {
+	// Use json.RawMessage to handle flexible message formats
+	var raw struct {
+		Messages []json.RawMessage `json:"messages"`
+		Skills   []string          `json:"skills"`
+	}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return agentGatewayResponse{}, fmt.Errorf("failed to parse response structure: %w", err)
+	}
+
+	messages := make([]GatewayMessage, 0, len(raw.Messages))
+	for _, rawMsg := range raw.Messages {
+		// Try parsing as object
+		var msg map[string]interface{}
+		if err := json.Unmarshal(rawMsg, &msg); err != nil {
+			// If it's an array, try to extract messages from it
+			var arr []interface{}
+			if err := json.Unmarshal(rawMsg, &arr); err == nil {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						messages = append(messages, GatewayMessage(m))
+					}
+				}
+				continue
+			}
+			// Skip unparseable messages
+			continue
+		}
+		messages = append(messages, GatewayMessage(msg))
+	}
+
+	return agentGatewayResponse{
+		Messages: messages,
+		Skills:   raw.Skills,
+	}, nil
+}
+
+func (r *Resolver) storeRound(ctx context.Context, botID, sessionID, query string, messages []GatewayMessage, skills []string) (bool, error) {
+	if err := r.storeHistory(ctx, botID, sessionID, query, messages, skills); err != nil {
 		return true, err
 	}
-	if err := r.storeMemory(ctx, userID, query, messages); err != nil {
+	if err := r.storeMemory(ctx, botID, sessionID, query, messages); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -744,6 +772,35 @@ func sanitizeGatewayMessages(messages []GatewayMessage) []GatewayMessage {
 			continue
 		}
 		cleaned = append(cleaned, msg)
+	}
+	return cleaned
+}
+
+func normalizeGatewayMessagesForModel(messages []GatewayMessage) []GatewayMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	cleaned := make([]GatewayMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		role, content := gatewayMessageToMemory(msg)
+		content = strings.TrimSpace(content)
+		if content == "" {
+			continue
+		}
+		if strings.TrimSpace(role) == "" {
+			role = "assistant"
+		}
+		if role == "tool" {
+			role = "assistant"
+			content = "[tool] " + content
+		}
+		cleaned = append(cleaned, GatewayMessage{
+			"role":    role,
+			"content": content,
+		})
 	}
 	return cleaned
 }
@@ -894,45 +951,43 @@ func normalizeMaxContextLoad(value int) int {
 }
 
 func (r *Resolver) loadUserSettings(ctx context.Context, userID string) (userSettings, error) {
-	if r.queries == nil {
-		return userSettings{
-			MaxContextLoadTime: defaultMaxContextMinutes,
-			Language:           "Same as user input",
-		}, nil
+	defaults := userSettings{
+		MaxContextLoadTime: defaultMaxContextMinutes,
+		Language:           "Same as user input",
 	}
-	pgUserID, err := parseUUID(userID)
+	if r.settingsService == nil || strings.TrimSpace(userID) == "" {
+		return defaults, nil
+	}
+	settingsRow, err := r.settingsService.Get(ctx, userID)
 	if err != nil {
 		return userSettings{}, err
 	}
-	settingsRow, err := r.queries.GetSettingsByUserID(ctx, pgUserID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return userSettings{
-				MaxContextLoadTime: defaultMaxContextMinutes,
-				Language:           "Same as user input",
-			}, nil
-		}
-		return userSettings{}, err
-	}
-	return normalizeUserSettingRow(settingsRow), nil
-}
-
-func normalizeUserSettingRow(row sqlc.UserSetting) userSettings {
-	maxLoad := int(row.MaxContextLoadTime)
+	maxLoad := settingsRow.MaxContextLoadTime
 	if maxLoad <= 0 {
 		maxLoad = defaultMaxContextMinutes
 	}
-	language := strings.TrimSpace(row.Language)
+	language := strings.TrimSpace(settingsRow.Language)
 	if language == "" {
 		language = "Same as user input"
 	}
 	return userSettings{
-		ChatModelID:        strings.TrimSpace(row.ChatModelID.String),
-		MemoryModelID:      strings.TrimSpace(row.MemoryModelID.String),
-		EmbeddingModelID:   strings.TrimSpace(row.EmbeddingModelID.String),
+		ChatModelID:        strings.TrimSpace(settingsRow.ChatModelID),
+		MemoryModelID:      strings.TrimSpace(settingsRow.MemoryModelID),
+		EmbeddingModelID:   strings.TrimSpace(settingsRow.EmbeddingModelID),
 		MaxContextLoadTime: maxLoad,
 		Language:           language,
+	}, nil
+}
+
+func (r *Resolver) loadBotSettings(ctx context.Context, botID string) (int, string, error) {
+	if r.settingsService == nil {
+		return settings.DefaultMaxContextLoadTime, settings.DefaultLanguage, nil
 	}
+	settingsRow, err := r.settingsService.GetBot(ctx, botID)
+	if err != nil {
+		return 0, "", err
+	}
+	return settingsRow.MaxContextLoadTime, settingsRow.Language, nil
 }
 
 func normalizeClientType(clientType string) (string, error) {

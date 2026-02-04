@@ -33,6 +33,26 @@ const ChatBody = z.object({
 
   messages: z.array(z.any()),
   query: z.string().min(1, 'Query is required'),
+  toolContext: z.object({
+    botId: z.string().optional(),
+    sessionId: z.string().optional(),
+    currentPlatform: z.string().optional(),
+    replyTarget: z.string().optional(),
+    sessionToken: z.string().optional(),
+    contactId: z.string().optional(),
+    contactName: z.string().optional(),
+    contactAlias: z.string().optional(),
+    userId: z.string().optional(),
+  }).optional(),
+  toolChoice: z.union([
+    z.literal('auto'),
+    z.literal('none'),
+    z.literal('required'),
+    z.object({
+      type: z.literal('tool'),
+      toolName: z.string(),
+    }),
+  ]).nullable().optional(),
 })
 
 const ScheduleBody = z.object({
@@ -66,13 +86,23 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       braveBaseUrl: config.brave?.base_url,
       skills: body.skills,
       useSkills: body.useSkills,
+      toolContext: body.toolContext,
+      toolChoice: body.toolChoice,
     }, createAuthFetcher(bearer))
     try {
       const result = await ask({
         messages: body.messages as unknown as ModelMessage[],
         query: body.query,
       })
-      console.log('[Chat] response', { type: 'chat', messages: result.messages?.length ?? 0 })
+      console.log('[Chat] response', {
+        type: 'chat',
+        messages: result.messages?.length ?? 0,
+        toolChoice: body.toolChoice ?? null,
+      })
+      // Debug: log message structure
+      if (result.messages?.length > 0) {
+        console.log('[Chat] message sample', JSON.stringify(result.messages[result.messages.length - 1], null, 2))
+      }
       return result
     } catch (error) {
       console.error('[Chat] error', {
@@ -94,6 +124,7 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       model: body.model,
       baseUrl: body.baseUrl,
       bearer,
+      toolChoice: body.toolChoice ?? null,
     })
     const { stream } = createAgent({
       apiKey: body.apiKey,
@@ -110,6 +141,8 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       braveBaseUrl: config.brave?.base_url,
       skills: body.skills,
       useSkills: body.useSkills,
+      toolContext: body.toolContext,
+      toolChoice: body.toolChoice,
     }, createAuthFetcher(bearer))
     try {
       const streanGenerator = stream({
@@ -165,6 +198,8 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       braveBaseUrl: config.brave?.base_url,
       skills: body.skills,
       useSkills: body.useSkills,
+      toolContext: body.toolContext,
+      toolChoice: body.toolChoice,
     }, createAuthFetcher(bearer))
     try {
       return await triggerSchedule({

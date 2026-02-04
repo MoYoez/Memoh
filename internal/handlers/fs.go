@@ -118,9 +118,9 @@ func (h *ContainerdHandler) validateMCPContainer(ctx context.Context, containerI
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	labelUserID := strings.TrimSpace(info.Labels[mcptools.UserLabelKey])
+	labelUserID := strings.TrimSpace(info.Labels[mcptools.BotLabelKey])
 	if labelUserID != "" && labelUserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
+		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
 	return nil
 }

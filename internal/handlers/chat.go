@@ -2,32 +2,41 @@ package handlers
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/auth"
+	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/identity"
+	"github.com/memohai/memoh/internal/users"
 )
 
 type ChatHandler struct {
-	resolver *chat.Resolver
-	logger   *slog.Logger
+	resolver    *chat.Resolver
+	botService  *bots.Service
+	userService *users.Service
+	logger      *slog.Logger
 }
 
-func NewChatHandler(log *slog.Logger, resolver *chat.Resolver) *ChatHandler {
+func NewChatHandler(log *slog.Logger, resolver *chat.Resolver, botService *bots.Service, userService *users.Service) *ChatHandler {
 	return &ChatHandler{
-		resolver: resolver,
-		logger:   log.With(slog.String("handler", "chat")),
+		resolver:    resolver,
+		botService:  botService,
+		userService: userService,
+		logger:      log.With(slog.String("handler", "chat")),
 	}
 }
 
 func (h *ChatHandler) Register(e *echo.Echo) {
-	group := e.Group("/chat")
+	group := e.Group("/bots/:bot_id/chat")
 	group.POST("", h.Chat)
 	group.POST("/stream", h.StreamChat)
 }
@@ -42,10 +51,21 @@ func (h *ChatHandler) Register(e *echo.Echo) {
 // @Success 200 {object} chat.ChatResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /chat [post]
+// @Router /bots/{bot_id}/chat [post]
 func (h *ChatHandler) Chat(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 
@@ -57,9 +77,10 @@ func (h *ChatHandler) Chat(c echo.Context) error {
 	if req.Query == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "query is required")
 	}
+	req.BotID = botID
+	req.SessionID = sessionID
+	req.Token = c.Request().Header.Get("Authorization")
 	req.UserID = userID
-	req.Token = c.Request().Header.Get("Authorization")
-	req.Token = c.Request().Header.Get("Authorization")
 
 	resp, err := h.resolver.Chat(c.Request().Context(), req)
 	if err != nil {
@@ -79,10 +100,21 @@ func (h *ChatHandler) Chat(c echo.Context) error {
 // @Success 200 {string} string
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /chat/stream [post]
+// @Router /bots/{bot_id}/chat/stream [post]
 func (h *ChatHandler) StreamChat(c echo.Context) error {
 	userID, err := h.requireUserID(c)
 	if err != nil {
+		return err
+	}
+	botID := strings.TrimSpace(c.Param("bot_id"))
+	if botID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	}
+	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	}
+	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
 		return err
 	}
 
@@ -94,9 +126,10 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 	if req.Query == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "query is required")
 	}
+	req.BotID = botID
+	req.SessionID = sessionID
+	req.Token = c.Request().Header.Get("Authorization")
 	req.UserID = userID
-	req.Token = c.Request().Header.Get("Authorization")
-	req.Token = c.Request().Header.Get("Authorization")
 
 	// Set headers for SSE
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
@@ -161,4 +194,25 @@ func (h *ChatHandler) requireUserID(c echo.Context) (string, error) {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	return userID, nil
+}
+
+func (h *ChatHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.userService == nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
+	}
+	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	if err != nil {
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: true})
+	if err != nil {
+		if errors.Is(err, bots.ErrBotNotFound) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
+		}
+		if errors.Is(err, bots.ErrBotAccessDenied) {
+			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
+		}
+		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return bot, nil
 }

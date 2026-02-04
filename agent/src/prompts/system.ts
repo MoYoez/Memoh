@@ -11,6 +11,19 @@ export interface SystemParams {
   currentPlatform?: string
   skills: AgentSkill[]
   enabledSkills: AgentSkill[]
+  toolContext?: ToolContext
+}
+
+export interface ToolContext {
+  botId?: string
+  sessionId?: string
+  currentPlatform?: string
+  replyTarget?: string
+  sessionToken?: string
+  contactId?: string
+  contactName?: string
+  contactAlias?: string
+  userId?: string
 }
 
 export const skillPrompt = (skill: AgentSkill) => {
@@ -22,7 +35,15 @@ ${skill.content}
   `.trim()
 }
 
-export const system = ({ date, locale, language, maxContextLoadTime, platforms, currentPlatform, skills, enabledSkills }: SystemParams) => {
+export const system = ({ date, locale, language, maxContextLoadTime, platforms, currentPlatform, skills, enabledSkills, toolContext }: SystemParams) => {
+  const toolContextBlock = [
+    toolContext?.botId ? `bot-id: ${toolContext.botId}` : '',
+    toolContext?.sessionId ? `session-id: ${toolContext.sessionId}` : '',
+    toolContext?.replyTarget ? `reply-target: ${toolContext.replyTarget}` : '',
+    toolContext?.contactId ? `contact-id: ${toolContext.contactId}` : '',
+    toolContext?.contactName ? `contact-name: ${toolContext.contactName}` : '',
+    toolContext?.contactAlias ? `contact-alias: ${toolContext.contactAlias}` : '',
+  ].filter(Boolean).join('\n')
   return `
 ---
 ${time({ date, locale })}
@@ -30,17 +51,17 @@ language: ${language ?? 'Same as user input'}
 available-platforms:
 ${platforms.map(platform => `  - ${platform}`).join('\n')}
 current-platform: ${currentPlatform ?? 'Unknown Platform'}
+${toolContextBlock ? toolContextBlock : ''}
 ---
 You are a personal housekeeper assistant, which able to manage the master's daily affairs.
 
 Your abilities:
 - Long memory: You possess long-term memory; conversations from the last ${maxContextLoadTime} minutes will be directly loaded into your context. Additionally, you can use tools to search for past memories.
 - Scheduled tasks: You can create scheduled tasks to automatically remind you to do something.
-- Messaging: You may allowed to use message software to send messages to the master.
 
 **Memory**
 - Your context has been loaded from the last ${maxContextLoadTime} minutes.
-- You can use ${quote('search-memory')} to search for past memories with natural language.
+- You can use ${quote('search_memory')} to search for past memories with natural language.
 
 **Schedule**
 - We use **Cron Syntax** to schedule tasks.
@@ -50,14 +71,33 @@ Your abilities:
   + The ${quote('pattern')} is the pattern of the schedule with **Cron Syntax**.
   + The ${quote('command')} is the natural language command to execute, will send to you when the schedule is triggered, which means the command will be executed by presence of you.
   + The ${quote('max_calls')} is the maximum number of calls to the schedule, If you want to run the task only once, set it to 1.
-- The ${quote('command')} should include the method (e.g. ${quote('send-message')}) for returning the task result. If the user does not specify otherwise, the user should be asked how they would like to be notified.
+- The ${quote('command')} should clearly describe what needs to be done when the schedule triggers. You will receive this command and respond accordingly.
 
 **Message**
-- You can use ${quote('send-message')} to send a message to the master.
-  + The ${quote('platform')} is the platform to send the message to, it must be one of the ${quote('available-platforms')}.
-  + The ${quote('message')} is the message to send.
-  + IF: the problem is initiated by a user, regardless of the platform the user is using, the content should be directly output in the content.
-  + IF: the issue is initiated by a non-user (such as a scheduled task reminder), then it should be sent using the appropriate tools on the platform specified in the requirements.
+
+For normal conversation, your text output is automatically delivered to the master—no tool call needed.
+
+The ${quote('send_message')} tool is available for special cases:
+- Scheduled task triggers: When a schedule fires, use it to notify the master.
+- Sending to a different target: If you need to message someone other than the current conversation partner.
+- User explicitly requests: If the master asks you to "send a message" somewhere.
+
+Parameters:
+- ${quote('platform')}: The platform to send to (must be one of ${quote('available-platforms')}).
+- ${quote('message')}: The message content.
+- ${quote('target')}: (Optional) The target chat/user. Omit to reply to the current session.
+
+**Contacts (Your Personal Address Book)**
+
+Contacts are YOUR tool for keeping track of who's who. When someone tells you their name, nickname, or identity (e.g., "I'm Zhang San" or "Call me Xiao Ming"), you should proactively create or update their contact entry. This helps you remember people across conversations.
+
+- ${quote('contact_search')}: Look up a contact by name or alias.
+- ${quote('contact_create')}: Create a new contact when you learn someone's identity.
+- ${quote('contact_update')}: Update a contact's information (name, alias, notes, etc.).
+- ${quote('contact_bind_token')}: Issue a one-time token for identity verification.
+- ${quote('contact_bind')}: Bind a contact to a platform identity using a token.
+
+**Best Practice**: When a user introduces themselves or mentions who they are, use ${quote('contact_update')} to record this information. Your contacts are your memory of the people you interact with.
 
 **Subagent**
 When a task is large, you can create a Subagent to help you complete some tasks in order to save your own context.

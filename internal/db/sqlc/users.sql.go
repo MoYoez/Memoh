@@ -28,7 +28,7 @@ VALUES (
   $1,
   $2,
   $3,
-  $4,
+  $4::user_role,
   $5,
   $6,
   $7,
@@ -41,7 +41,7 @@ type CreateUserParams struct {
 	Username     string      `json:"username"`
 	Email        pgtype.Text `json:"email"`
 	PasswordHash string      `json:"password_hash"`
-	Role         interface{} `json:"role"`
+	Role         string      `json:"role"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	AvatarUrl    pgtype.Text `json:"avatar_url"`
 	IsActive     bool        `json:"is_active"`
@@ -84,7 +84,7 @@ VALUES (
   $2,
   $3,
   $4,
-  $5,
+  $5::user_role,
   $6,
   $7,
   $8,
@@ -98,7 +98,7 @@ type CreateUserWithIDParams struct {
 	Username     string      `json:"username"`
 	Email        pgtype.Text `json:"email"`
 	PasswordHash string      `json:"password_hash"`
-	Role         interface{} `json:"role"`
+	Role         string      `json:"role"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	AvatarUrl    pgtype.Text `json:"avatar_url"`
 	IsActive     bool        `json:"is_active"`
@@ -159,6 +159,30 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
+const getUserByIdentity = `-- name: GetUserByIdentity :one
+SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users WHERE username = $1 OR email = $1
+`
+
+func (q *Queries) GetUserByIdentity(ctx context.Context, identity string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByIdentity, identity)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.IsActive,
+		&i.DataRoot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users WHERE username = $1
 `
@@ -183,13 +207,199 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const listUsers = `-- name: ListUsers :many
+SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.PasswordHash,
+			&i.Role,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.IsActive,
+			&i.DataRoot,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastLoginAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateUserAdmin = `-- name: UpdateUserAdmin :one
+UPDATE users
+SET role = $1::user_role,
+    display_name = $2,
+    avatar_url = $3,
+    is_active = $4,
+    updated_at = now()
+WHERE id = $5
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+`
+
+type UpdateUserAdminParams struct {
+	Role        string      `json:"role"`
+	DisplayName pgtype.Text `json:"display_name"`
+	AvatarUrl   pgtype.Text `json:"avatar_url"`
+	IsActive    bool        `json:"is_active"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserAdmin(ctx context.Context, arg UpdateUserAdminParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserAdmin,
+		arg.Role,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.IsActive,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.IsActive,
+		&i.DataRoot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
+const updateUserLastLogin = `-- name: UpdateUserLastLogin :one
+UPDATE users
+SET last_login_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+`
+
+func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserLastLogin, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.IsActive,
+		&i.DataRoot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :one
+UPDATE users
+SET password_hash = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+`
+
+type UpdateUserPasswordParams struct {
+	ID           pgtype.UUID `json:"id"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.IsActive,
+		&i.DataRoot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET display_name = $2,
+    avatar_url = $3,
+    is_active = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+`
+
+type UpdateUserProfileParams struct {
+	ID          pgtype.UUID `json:"id"`
+	DisplayName pgtype.Text `json:"display_name"`
+	AvatarUrl   pgtype.Text `json:"avatar_url"`
+	IsActive    bool        `json:"is_active"`
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.ID,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.IsActive,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.IsActive,
+		&i.DataRoot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
 const upsertUserByUsername = `-- name: UpsertUserByUsername :one
 INSERT INTO users (username, email, password_hash, role, display_name, avatar_url, is_active, data_root)
 VALUES (
   $1,
   $2,
   $3,
-  $4,
+  $4::user_role,
   $5,
   $6,
   $7,
@@ -211,7 +421,7 @@ type UpsertUserByUsernameParams struct {
 	Username     string      `json:"username"`
 	Email        pgtype.Text `json:"email"`
 	PasswordHash string      `json:"password_hash"`
-	Role         interface{} `json:"role"`
+	Role         string      `json:"role"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	AvatarUrl    pgtype.Text `json:"avatar_url"`
 	IsActive     bool        `json:"is_active"`

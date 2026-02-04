@@ -7,7 +7,8 @@ type Record struct {
 	Messages  []map[string]interface{} `json:"messages"`
 	Skills    []string                 `json:"skills"`
 	Timestamp time.Time                `json:"timestamp"`
-	UserID    string                   `json:"user_id"`
+	BotID     string                   `json:"bot_id"`
+	SessionID string                   `json:"session_id"`
 }
 
 type CreateRequest struct {
@@ -18,4 +19,3 @@ type CreateRequest struct {
 type ListResponse struct {
 	Items []Record `json:"items"`
 }
-
