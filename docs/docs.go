@@ -4476,7 +4476,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
-                "current_platform": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "current_channel": {
                     "type": "string"
                 },
                 "language": {
@@ -4493,12 +4499,6 @@ const docTemplate = `{
                 },
                 "model": {
                     "type": "string"
-                },
-                "platforms": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 },
                 "provider": {
                     "type": "string"

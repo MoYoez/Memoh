@@ -140,8 +140,8 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 		ReplyTarget:     strings.TrimSpace(msg.ReplyTarget),
 		SessionToken:    sessionToken,
 		Query:           text,
-		CurrentPlatform: msg.Channel.String(),
-		Platforms:       []string{msg.Channel.String()},
+		CurrentChannel: msg.Channel.String(),
+		Channels:       []string{msg.Channel.String()},
 	})
 	if err != nil {
 		if p.logger != nil {

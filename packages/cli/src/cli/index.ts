@@ -835,7 +835,7 @@ const startLocalStream = (botId: string, sessionId: string, token: TokenInfo, on
   const baseURL = getBaseURL(config)
   const controller = new AbortController()
   void (async () => {
-    const resp = await fetch(`${baseURL}/bots/${botId}/cli/sessions/${sessionId}/stream`, {
+    const resp = await fetch(`${baseURL}/bots/${botId}/chat/stream`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token.access_token}`,

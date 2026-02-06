@@ -25,8 +25,8 @@ type ChatRequest struct {
 	Provider           string           `json:"provider,omitempty"`
 	MaxContextLoadTime int              `json:"max_context_load_time,omitempty"`
 	Language           string           `json:"language,omitempty"`
-	Platforms          []string         `json:"platforms,omitempty"`
-	CurrentPlatform    string           `json:"current_platform,omitempty"`
+	Channels           []string         `json:"channels,omitempty"`
+	CurrentChannel     string           `json:"current_channel,omitempty"`
 	Messages           []GatewayMessage `json:"messages,omitempty"`
 	Skills             []string         `json:"skills,omitempty"`
 	AllowedActions     []string         `json:"allowed_actions,omitempty"`

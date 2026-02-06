@@ -95,8 +95,8 @@ type gatewayIdentity struct {
 type agentGatewayRequest struct {
 	Model             gatewayModelConfig `json:"model"`
 	ActiveContextTime int                `json:"activeContextTime"`
-	Platforms         []string           `json:"platforms"`
-	CurrentPlatform   string             `json:"currentPlatform"`
+	Channels          []string           `json:"channels"`
+	CurrentChannel    string             `json:"currentChannel"`
 	AllowedActions    []string           `json:"allowedActions,omitempty"`
 	Messages          []GatewayMessage   `json:"messages"`
 	Skills            []string           `json:"skills"`
@@ -177,8 +177,8 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 			BaseURL:    provider.BaseUrl,
 		},
 		ActiveContextTime: normalizeMaxContextLoad(maxContextLoadTime),
-		Platforms:         req.Platforms,
-		CurrentPlatform:   req.CurrentPlatform,
+		Channels:          req.Channels,
+		CurrentChannel:    req.CurrentChannel,
 		AllowedActions:    req.AllowedActions,
 		Messages:          messages,
 		Skills:            skills,
@@ -191,7 +191,7 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 			ContactName:     defaultString(req.ContactName, "User"),
 			ContactAlias:    req.ContactAlias,
 			UserID:          req.UserID,
-			CurrentPlatform: req.CurrentPlatform,
+			CurrentPlatform: req.CurrentChannel,
 			ReplyTarget:     req.ReplyTarget,
 			SessionToken:    req.SessionToken,
 		},
@@ -381,8 +381,8 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 				BaseURL:    provider.BaseUrl,
 			},
 			ActiveContextTime: normalizeMaxContextLoad(maxContextLoadTime),
-			Platforms:         req.Platforms,
-			CurrentPlatform:   req.CurrentPlatform,
+			Channels:          req.Channels,
+			CurrentChannel:    req.CurrentChannel,
 			AllowedActions:    req.AllowedActions,
 			Messages:          messages,
 			Skills:            skills,
@@ -395,7 +395,7 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 				ContactName:     defaultString(req.ContactName, "User"),
 				ContactAlias:    req.ContactAlias,
 				UserID:          req.UserID,
-				CurrentPlatform: req.CurrentPlatform,
+				CurrentPlatform: req.CurrentChannel,
 				ReplyTarget:     req.ReplyTarget,
 				SessionToken:    req.SessionToken,
 			},

@@ -17,7 +17,7 @@ const AgentModel = z.object({
   skills: z.array(z.string()),
   query: z.string(),
   identity: IdentityContextModel,
-  attachments: z.array(AttachmentModel),
+  attachments: z.array(AttachmentModel).optional().default([]),
 })
 
 export const chatModule = new Elysia({ prefix: '/chat' })
@@ -42,7 +42,8 @@ export const chatModule = new Elysia({ prefix: '/chat' })
     body: AgentModel,
   })
   .post('/stream', async function* ({ body, bearer }) {
-    const authFetcher = createAuthFetcher(bearer)
+    try {
+      const authFetcher = createAuthFetcher(bearer)
     const { stream } = createAgent({
       model: body.model as ModelConfig,
       activeContextTime: body.activeContextTime,
@@ -58,6 +59,13 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       attachments: body.attachments,
     })) {
       yield sse(JSON.stringify(action))
+    }
+    } catch (error) {
+      console.error(error)
+      yield sse(JSON.stringify({
+        type: 'error',
+        message: 'Internal server error',
+      }))
     }
   }, {
     body: AgentModel,

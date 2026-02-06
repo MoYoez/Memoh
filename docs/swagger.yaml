@@ -416,7 +416,11 @@ definitions:
         items:
           type: string
         type: array
-      current_platform:
+      channels:
+        items:
+          type: string
+        type: array
+      current_channel:
         type: string
       language:
         type: string
@@ -428,10 +432,6 @@ definitions:
         type: array
       model:
         type: string
-      platforms:
-        items:
-          type: string
-        type: array
       provider:
         type: string
       query:
