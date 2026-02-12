@@ -1,5 +1,20 @@
-import { generateText, ImagePart, LanguageModelUsage, ModelMessage, stepCountIs, streamText, UserModelMessage } from 'ai'
-import { AgentInput, AgentParams, AgentSkill, allActions, Schedule } from './types'
+import {
+  generateText,
+  ImagePart,
+  LanguageModelUsage,
+  ModelMessage,
+  stepCountIs,
+  streamText,
+  ToolSet,
+  UserModelMessage,
+} from 'ai'
+import {
+  AgentInput,
+  AgentParams,
+  AgentSkill,
+  allActions,
+  Schedule,
+} from './types'
 import { system, schedule, user, subagentSystem } from './prompts'
 import { AuthFetcher } from './index'
 import { createModel } from './model'
@@ -12,36 +27,40 @@ import {
 } from './utils/attachments'
 import type { ContainerFileAttachment } from './types/attachment'
 import { getMCPTools } from './tools/mcp'
+import { getTools } from './tools'
 
-export const createAgent = ({
-  model: modelConfig,
-  activeContextTime = 24 * 60,
-  brave,
-  language = 'Same as the user input',
-  allowedActions = allActions,
-  channels = [],
-  skills = [],
-  currentChannel = 'Unknown Channel',
-  identity = {
-    botId: '',
-    containerId: '',
-    channelIdentityId: '',
-    displayName: '',
-  },
-  auth,
-}: AgentParams, fetch: AuthFetcher) => {
+export const createAgent = (
+  {
+    model: modelConfig,
+    activeContextTime = 24 * 60,
+    brave,
+    language = 'Same as the user input',
+    allowedActions = allActions,
+    channels = [],
+    skills = [],
+    currentChannel = 'Unknown Channel',
+    identity = {
+      botId: '',
+      containerId: '',
+      channelIdentityId: '',
+      displayName: '',
+    },
+    auth,
+  }: AgentParams,
+  fetch: AuthFetcher,
+) => {
   const model = createModel(modelConfig)
   const enabledSkills: AgentSkill[] = []
 
   const enableSkill = (skill: string) => {
-    const agentSkill = skills.find(s => s.name === skill)
+    const agentSkill = skills.find((s) => s.name === skill)
     if (agentSkill) {
       enabledSkills.push(agentSkill)
     }
   }
 
   const getEnabledSkills = () => {
-    return enabledSkills.map(skill => skill.name)
+    return enabledSkills.map((skill) => skill.name)
   }
 
   const loadSystemFiles = async () => {
@@ -56,8 +75,8 @@ export const createAgent = ({
       const url = `${auth.baseUrl.replace(/\/$/, '')}/bots/${identity.botId}/tools`
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-        'Authorization': `Bearer ${auth.bearer}`,
+        Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${auth.bearer}`,
       }
       if (identity.channelIdentityId) {
         headers['X-Memoh-Channel-Identity-Id'] = identity.channelIdentityId
@@ -70,8 +89,9 @@ export const createAgent = ({
       })
       const response = await fetch(url, { method: 'POST', headers, body })
       if (!response.ok) return ''
-      const data = await response.json().catch(() => ({} as any))
-      const structured = data?.result?.structuredContent ?? data?.result?.content?.[0]?.text
+      const data = await response.json().catch(() => ({}))
+      const structured =
+        data?.result?.structuredContent ?? data?.result?.content?.[0]?.text
       if (typeof structured === 'string') {
         try {
           const parsed = JSON.parse(structured)
@@ -98,7 +118,8 @@ export const createAgent = ({
   }
 
   const generateSystemPrompt = async () => {
-    const { identityContent, soulContent, toolsContent } = await loadSystemFiles()
+    const { identityContent, soulContent, toolsContent } =
+      await loadSystemFiles()
     return system({
       date: new Date(),
       language,
@@ -123,7 +144,7 @@ export const createAgent = ({
       }
     }
     const headers: Record<string, string> = {
-      'Authorization': `Bearer ${auth.bearer}`,
+      Authorization: `Bearer ${auth.bearer}`,
     }
     if (identity.channelIdentityId) {
       headers['X-Memoh-Channel-Identity-Id'] = identity.channelIdentityId
@@ -137,16 +158,24 @@ export const createAgent = ({
     if (identity.replyTarget) {
       headers['X-Memoh-Reply-Target'] = identity.replyTarget
     }
-    const { tools: mcpTools, close: closeMCP } = await getMCPTools(`${baseUrl}/bots/${botId}/tools`, headers)
+    const { tools: mcpTools, close: closeMCP } = await getMCPTools(
+      `${baseUrl}/bots/${botId}/tools`,
+      headers,
+    )
+    const tools = getTools(allowedActions, { fetch, model: modelConfig, brave, identity, auth, enableSkill })
     return {
-      tools: mcpTools,
+      tools: { ...mcpTools, ...tools } as ToolSet,
       close: closeMCP,
     }
   }
 
   const generateUserPrompt = (input: AgentInput) => {
-    const images = input.attachments.filter(attachment => attachment.type === 'image')
-    const files = input.attachments.filter((a): a is ContainerFileAttachment => a.type === 'file')
+    const images = input.attachments.filter(
+      (attachment) => attachment.type === 'image',
+    )
+    const files = input.attachments.filter(
+      (a): a is ContainerFileAttachment => a.type === 'file',
+    )
     const text = user(input.query, {
       channelIdentityId: identity.channelIdentityId || identity.contactId || '',
       displayName: identity.displayName || identity.contactName || 'User',
@@ -158,8 +187,10 @@ export const createAgent = ({
       role: 'user',
       content: [
         { type: 'text', text },
-        ...images.map(image => ({ type: 'image', image: image.base64 }) as ImagePart),
-      ]
+        ...images.map(
+          (image) => ({ type: 'image', image: image.base64 }) as ImagePart,
+        ),
+      ],
     }
     return userMessage
   }
@@ -167,7 +198,7 @@ export const createAgent = ({
   const ask = async (input: AgentInput) => {
     const userPrompt = generateUserPrompt(input)
     const messages = [...input.messages, userPrompt]
-    input.skills.forEach(skill => enableSkill(skill))
+    input.skills.forEach((skill) => enableSkill(skill))
     const systemPrompt = await generateSystemPrompt()
     const { tools, close } = await getAgentTools()
     const { response, reasoning, text, usage } = await generateText({
@@ -185,12 +216,17 @@ export const createAgent = ({
       },
       tools,
     })
-    const { cleanedText, attachments: textAttachments } = extractAttachmentsFromText(text)
-    const { messages: strippedMessages, attachments: messageAttachments } = stripAttachmentsFromMessages(response.messages)
-    const allAttachments = dedupeAttachments([...textAttachments, ...messageAttachments])
+    const { cleanedText, attachments: textAttachments } =
+      extractAttachmentsFromText(text)
+    const { messages: strippedMessages, attachments: messageAttachments } =
+      stripAttachmentsFromMessages(response.messages)
+    const allAttachments = dedupeAttachments([
+      ...textAttachments,
+      ...messageAttachments,
+    ])
     return {
       messages: strippedMessages,
-      reasoning: reasoning.map(part => part.text),
+      reasoning: reasoning.map((part) => part.text),
       usage,
       text: cleanedText,
       attachments: allAttachments,
@@ -199,16 +235,14 @@ export const createAgent = ({
   }
 
   const askAsSubagent = async (params: {
-    input: string
-    name: string
-    description: string
-    messages: ModelMessage[]
+    input: string;
+    name: string;
+    description: string;
+    messages: ModelMessage[];
   }) => {
     const userPrompt: UserModelMessage = {
       role: 'user',
-      content: [
-        { type: 'text', text: params.input },
-      ]
+      content: [{ type: 'text', text: params.input }],
     }
     const generateSubagentSystemPrompt = () => {
       return subagentSystem({
@@ -236,7 +270,7 @@ export const createAgent = ({
     })
     return {
       messages: [userPrompt, ...response.messages],
-      reasoning: reasoning.map(part => part.text),
+      reasoning: reasoning.map((part) => part.text),
       usage,
       text,
       skills: getEnabledSkills(),
@@ -244,18 +278,21 @@ export const createAgent = ({
   }
 
   const triggerSchedule = async (params: {
-    schedule: Schedule
-    messages: ModelMessage[]
-    skills: string[]
+    schedule: Schedule;
+    messages: ModelMessage[];
+    skills: string[];
   }) => {
     const scheduleMessage: UserModelMessage = {
       role: 'user',
       content: [
-        { type: 'text', text: schedule({ schedule: params.schedule, date: new Date() }) },
-      ]
+        {
+          type: 'text',
+          text: schedule({ schedule: params.schedule, date: new Date() }),
+        },
+      ],
     }
     const messages = [...params.messages, scheduleMessage]
-    params.skills.forEach(skill => enableSkill(skill))
+    params.skills.forEach((skill) => enableSkill(skill))
     const { tools, close } = await getAgentTools()
     const { response, reasoning, text, usage } = await generateText({
       model,
@@ -269,7 +306,7 @@ export const createAgent = ({
     })
     return {
       messages: [scheduleMessage, ...response.messages],
-      reasoning: reasoning.map(part => part.text),
+      reasoning: reasoning.map((part) => part.text),
       usage,
       text,
       skills: getEnabledSkills(),
@@ -301,17 +338,17 @@ export const createAgent = ({
   async function* stream(input: AgentInput): AsyncGenerator<AgentAction> {
     const userPrompt = generateUserPrompt(input)
     const messages = [...input.messages, userPrompt]
-    input.skills.forEach(skill => enableSkill(skill))
+    input.skills.forEach((skill) => enableSkill(skill))
     const systemPrompt = await generateSystemPrompt()
     const attachmentsExtractor = new AttachmentsStreamExtractor()
     const result: {
-      messages: ModelMessage[]
-      reasoning: string[]
-      usage: LanguageModelUsage | null
+      messages: ModelMessage[];
+      reasoning: string[];
+      usage: LanguageModelUsage | null;
     } = {
       messages: [],
       reasoning: [],
-      usage: null
+      usage: null,
     }
     const { tools, close } = await getAgentTools()
     const { fullStream } = streamText({
@@ -328,9 +365,9 @@ export const createAgent = ({
       onFinish: async ({ usage, reasoning, response }) => {
         await close()
         result.usage = usage as never
-        result.reasoning = reasoning.map(part => part.text)
+        result.reasoning = reasoning.map((part) => part.text)
         result.messages = response.messages
-      }
+      },
     })
     yield {
       type: 'agent_start',
@@ -338,26 +375,38 @@ export const createAgent = ({
     }
     for await (const chunk of fullStream) {
       if (chunk.type === 'error') {
-        throw new Error(resolveStreamErrorMessage((chunk as { error?: unknown }).error))
+        throw new Error(
+          resolveStreamErrorMessage((chunk as { error?: unknown }).error),
+        )
       }
       switch (chunk.type) {
-        case 'reasoning-start': yield {
-          type: 'reasoning_start',
-          metadata: chunk
-        }; break
-        case 'reasoning-delta': yield {
-          type: 'reasoning_delta',
-          delta: chunk.text
-        }; break
-        case 'reasoning-end': yield {
-          type: 'reasoning_end',
-          metadata: chunk
-        }; break
-        case 'text-start': yield {
-          type: 'text_start',
-        }; break
+        case 'reasoning-start':
+          yield {
+            type: 'reasoning_start',
+            metadata: chunk,
+          }
+          break
+        case 'reasoning-delta':
+          yield {
+            type: 'reasoning_delta',
+            delta: chunk.text,
+          }
+          break
+        case 'reasoning-end':
+          yield {
+            type: 'reasoning_end',
+            metadata: chunk,
+          }
+          break
+        case 'text-start':
+          yield {
+            type: 'text_start',
+          }
+          break
         case 'text-delta': {
-          const { visibleText, attachments } = attachmentsExtractor.push(chunk.text)
+          const { visibleText, attachments } = attachmentsExtractor.push(
+            chunk.text,
+          )
           if (visibleText) {
             yield {
               type: 'text_delta',
@@ -393,30 +442,37 @@ export const createAgent = ({
           }
           break
         }
-        case 'tool-call': yield {
-          type: 'tool_call_start',
-          toolName: chunk.toolName,
-          toolCallId: chunk.toolCallId,
-          input: chunk.input,
-          metadata: chunk
-        }; break
-        case 'tool-result': yield {
-          type: 'tool_call_end',
-          toolName: chunk.toolName,
-          toolCallId: chunk.toolCallId,
-          input: chunk.input,
-          result: chunk.output,
-          metadata: chunk
-        }; break
-        case 'file': yield {
-          type: 'image_delta',
-          image: chunk.file.base64,
-          metadata: chunk
-        }
+        case 'tool-call':
+          yield {
+            type: 'tool_call_start',
+            toolName: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+            input: chunk.input,
+            metadata: chunk,
+          }
+          break
+        case 'tool-result':
+          yield {
+            type: 'tool_call_end',
+            toolName: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+            input: chunk.input,
+            result: chunk.output,
+            metadata: chunk,
+          }
+          break
+        case 'file':
+          yield {
+            type: 'image_delta',
+            image: chunk.file.base64,
+            metadata: chunk,
+          }
       }
     }
 
-    const { messages: strippedMessages } = stripAttachmentsFromMessages(result.messages)
+    const { messages: strippedMessages } = stripAttachmentsFromMessages(
+      result.messages,
+    )
     yield {
       type: 'agent_end',
       messages: strippedMessages,
