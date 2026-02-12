@@ -2,14 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/bind"
+	"github.com/memohai/memoh/internal/boot"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/channel/adapters/feishu"
@@ -46,193 +56,440 @@ import (
 	"github.com/memohai/memoh/internal/settings"
 	"github.com/memohai/memoh/internal/subagent"
 	"github.com/memohai/memoh/internal/version"
-
-	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
-	fmt.Printf("Starting Memoh Agent %s\n", version.GetInfo())
-	ctx := context.Background()
+	fx.New(
+		fx.Provide(
+			provideConfig,
+			boot.ProvideRuntimeConfig,
+			provideLogger,
+			provideContainerdClient,
+			provideDBConn,
+			provideDBQueries,
+
+			// containerd & mcp infrastructure
+			fx.Annotate(ctr.NewDefaultService, fx.As(new(ctr.Service))),
+			provideMCPManager,
+
+			// memory pipeline
+			provideMemoryLLM,
+			provideEmbeddingsResolver,
+			provideEmbeddingSetup,
+			provideTextEmbedderForMemory,
+			provideQdrantStore,
+			memory.NewBM25Indexer,
+			provideMemoryService,
+
+			// domain services (auto-wired)
+			models.NewService,
+			bots.NewService,
+			accounts.NewService,
+			settings.NewService,
+			providers.NewService,
+			policy.NewService,
+			preauth.NewService,
+			mcp.NewConnectionService,
+			subagent.NewService,
+			conversation.NewService,
+			identities.NewService,
+			bind.NewService,
+			event.NewHub,
+
+			// services requiring provide functions
+			provideRouteService,
+			provideMessageService,
+
+			// channel infrastructure
+			local.NewRouteHub,
+			provideChannelRegistry,
+			channel.NewService,
+			provideChannelRouter,
+			provideChannelManager,
+
+			// conversation flow
+			provideChatResolver,
+			provideScheduleTriggerer,
+			schedule.NewService,
+
+			// containerd handler & tool gateway
+			provideContainerdHandler,
+			provideToolGatewayService,
+
+			// http handlers (group:"server_handlers")
+			provideServerHandler(handlers.NewPingHandler),
+			provideServerHandler(provideAuthHandler),
+			provideServerHandler(handlers.NewMemoryHandler),
+			provideServerHandler(handlers.NewEmbeddingsHandler),
+			provideServerHandler(provideMessageHandler),
+			provideServerHandler(handlers.NewSwaggerHandler),
+			provideServerHandler(handlers.NewProvidersHandler),
+			provideServerHandler(handlers.NewModelsHandler),
+			provideServerHandler(handlers.NewSettingsHandler),
+			provideServerHandler(handlers.NewPreauthHandler),
+			provideServerHandler(handlers.NewBindHandler),
+			provideServerHandler(handlers.NewScheduleHandler),
+			provideServerHandler(handlers.NewSubagentHandler),
+			provideServerHandler(handlers.NewChannelHandler),
+			provideServerHandler(provideUsersHandler),
+			provideServerHandler(handlers.NewMCPHandler),
+			provideServerHandler(provideCLIHandler),
+			provideServerHandler(provideWebHandler),
+
+			provideServer,
+		),
+		fx.Invoke(
+			startMemoryWarmup,
+			startScheduleService,
+			startChannelManager,
+			startContainerReconciliation,
+			startServer,
+		),
+		fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
+			return &fxevent.SlogLogger{Logger: logger.With(slog.String("component", "fx"))}
+		}),
+	).Run()
+}
+
+// ---------------------------------------------------------------------------
+// fx helper
+// ---------------------------------------------------------------------------
+
+func provideServerHandler(fn any) any {
+	return fx.Annotate(
+		fn,
+		fx.As(new(server.Handler)),
+		fx.ResultTags(`group:"server_handlers"`),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// infrastructure providers
+// ---------------------------------------------------------------------------
+
+func provideConfig() (config.Config, error) {
 	cfgPath := os.Getenv("CONFIG_PATH")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
-		os.Exit(1)
+		return config.Config{}, fmt.Errorf("load config: %w", err)
 	}
+	return cfg, nil
+}
 
+func provideLogger(cfg config.Config) *slog.Logger {
 	logger.Init(cfg.Log.Level, cfg.Log.Format)
+	return logger.L
+}
 
-	if strings.TrimSpace(cfg.Auth.JWTSecret) == "" {
-		logger.Error("jwt secret is required")
-		os.Exit(1)
-	}
-	jwtExpiresIn, err := time.ParseDuration(cfg.Auth.JWTExpiresIn)
+func provideContainerdClient(lc fx.Lifecycle, rc *boot.RuntimeConfig) (*containerd.Client, error) {
+	factory := ctr.DefaultClientFactory{SocketPath: rc.ContainerdSocketPath}
+	client, err := factory.New(context.Background())
 	if err != nil {
-		logger.Error("invalid jwt expires in", slog.Any("error", err))
-		os.Exit(1)
+		return nil, fmt.Errorf("connect containerd: %w", err)
 	}
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return client.Close()
+		},
+	})
+	return client, nil
+}
 
-	addr := cfg.Server.Addr
-	if value := os.Getenv("HTTP_ADDR"); value != "" {
-		addr = value
-	}
-
-	socketPath := cfg.Containerd.SocketPath
-	if value := os.Getenv("CONTAINERD_SOCKET"); value != "" {
-		socketPath = value
-	}
-	factory := ctr.DefaultClientFactory{SocketPath: socketPath}
-	client, err := factory.New(ctx)
+func provideDBConn(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
+	conn, err := db.Open(context.Background(), cfg.Postgres)
 	if err != nil {
-		logger.Error("connect containerd", slog.Any("error", err))
-		os.Exit(1)
+		return nil, fmt.Errorf("db connect: %w", err)
 	}
-	defer client.Close()
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			conn.Close()
+			return nil
+		},
+	})
+	return conn, nil
+}
 
-	service := ctr.NewDefaultService(logger.L, client, cfg.Containerd.Namespace)
-	manager := mcp.NewManager(logger.L, service, cfg.MCP, cfg.Containerd.Namespace)
+func provideDBQueries(conn *pgxpool.Pool) *dbsqlc.Queries {
+	return dbsqlc.New(conn)
+}
 
-	pingHandler := handlers.NewPingHandler(logger.L)
-	// containerdHandler is created later after DB services are initialized
+func provideMCPManager(log *slog.Logger, service ctr.Service, cfg config.Config, conn *pgxpool.Pool) *mcp.Manager {
+	return mcp.NewManager(log, service, cfg.MCP, cfg.Containerd.Namespace, conn)
+}
 
-	conn, err := db.Open(ctx, cfg.Postgres)
-	if err != nil {
-		logger.Error("db connect", slog.Any("error", err))
-		os.Exit(1)
-	}
-	defer conn.Close()
-	manager.WithDB(conn)
-	queries := dbsqlc.New(conn)
-	modelsService := models.NewService(logger.L, queries)
-	botService := bots.NewService(logger.L, queries)
-	accountService := accounts.NewService(logger.L, queries)
-	settingsService := settings.NewService(logger.L, queries)
-	policyService := policy.NewService(logger.L, botService, settingsService)
+// ---------------------------------------------------------------------------
+// memory providers
+// ---------------------------------------------------------------------------
 
-	containerdHandler := handlers.NewContainerdHandler(logger.L, service, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, policyService, queries)
-	botService.SetContainerLifecycle(containerdHandler)
-
-	if err := ensureAdminUser(ctx, logger.L, queries, cfg); err != nil {
-		logger.Error("ensure admin user", slog.Any("error", err))
-		os.Exit(1)
-	}
-
-	authHandler := handlers.NewAuthHandler(logger.L, accountService, cfg.Auth.JWTSecret, jwtExpiresIn)
-
-	// Initialize conversation runner after memory service is configured.
-	var chatResolver *flow.Resolver
-
-	// Create LLM client for memory operations (deferred model/provider selection).
-	var llmClient memory.LLM = &lazyLLMClient{
+func provideMemoryLLM(modelsService *models.Service, queries *dbsqlc.Queries, log *slog.Logger) memory.LLM {
+	return &lazyLLMClient{
 		modelsService: modelsService,
 		queries:       queries,
 		timeout:       30 * time.Second,
-		logger:        logger.L,
+		logger:        log,
 	}
+}
 
-	resolver := embeddings.NewResolver(logger.L, modelsService, queries, 10*time.Second)
+func provideEmbeddingsResolver(log *slog.Logger, modelsService *models.Service, queries *dbsqlc.Queries) *embeddings.Resolver {
+	return embeddings.NewResolver(log, modelsService, queries, 10*time.Second)
+}
+
+type embeddingSetup struct {
+	Vectors            map[string]int
+	TextModel          models.GetResponse
+	MultimodalModel    models.GetResponse
+	HasEmbeddingModels bool
+}
+
+func provideEmbeddingSetup(log *slog.Logger, modelsService *models.Service) (embeddingSetup, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	vectors, textModel, multimodalModel, hasEmbeddingModels, err := embeddings.CollectEmbeddingVectors(ctx, modelsService)
 	if err != nil {
-		logger.Error("embedding models", slog.Any("error", err))
-		os.Exit(1)
+		return embeddingSetup{}, fmt.Errorf("embedding models: %w", err)
 	}
-
-	textEmbedder := buildTextEmbedder(resolver, textModel, hasEmbeddingModels, logger.L)
 	if hasEmbeddingModels && multimodalModel.ModelID == "" {
-		logger.Warn("No multimodal embedding model configured. Multimodal embedding features will be limited.")
+		log.Warn("No multimodal embedding model configured. Multimodal embedding features will be limited.")
 	}
-	store := buildQdrantStore(logger.L, cfg.Qdrant, vectors, hasEmbeddingModels, textModel.Dimensions)
+	return embeddingSetup{
+		Vectors:            vectors,
+		TextModel:          textModel,
+		MultimodalModel:    multimodalModel,
+		HasEmbeddingModels: hasEmbeddingModels,
+	}, nil
+}
 
-	bm25Indexer := memory.NewBM25Indexer(logger.L)
-	memoryService := memory.NewService(logger.L, llmClient, textEmbedder, store, resolver, bm25Indexer, textModel.ModelID, multimodalModel.ModelID)
-	go func() {
-		if err := memoryService.WarmupBM25(ctx, 200); err != nil {
-			logger.Warn("bm25 warmup failed", slog.Any("error", err))
+func provideTextEmbedderForMemory(resolver *embeddings.Resolver, setup embeddingSetup, log *slog.Logger) embeddings.Embedder {
+	return buildTextEmbedder(resolver, setup.TextModel, setup.HasEmbeddingModels, log)
+}
+
+func provideQdrantStore(log *slog.Logger, cfg config.Config, setup embeddingSetup) (*memory.QdrantStore, error) {
+	qcfg := cfg.Qdrant
+	timeout := time.Duration(qcfg.TimeoutSeconds) * time.Second
+	if setup.HasEmbeddingModels && len(setup.Vectors) > 0 {
+		store, err := memory.NewQdrantStoreWithVectors(log, qcfg.BaseURL, qcfg.APIKey, qcfg.Collection, setup.Vectors, "sparse_hash", timeout)
+		if err != nil {
+			return nil, fmt.Errorf("qdrant named vectors init: %w", err)
 		}
-	}()
+		return store, nil
+	}
+	store, err := memory.NewQdrantStore(log, qcfg.BaseURL, qcfg.APIKey, qcfg.Collection, setup.TextModel.Dimensions, "sparse_hash", timeout)
+	if err != nil {
+		return nil, fmt.Errorf("qdrant init: %w", err)
+	}
+	return store, nil
+}
 
-	// Initialize providers and models handlers
-	providersService := providers.NewService(logger.L, queries)
-	providersHandler := handlers.NewProvidersHandler(logger.L, providersService, modelsService)
-	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService, botService, accountService)
-	modelsHandler := handlers.NewModelsHandler(logger.L, modelsService, settingsService)
-	chatService := conversation.NewService(logger.L, queries)
-	routeService := route.NewService(logger.L, queries, chatService)
-	messageEvents := event.NewHub()
-	messageService := message.NewService(logger.L, queries, messageEvents)
-	memoryHandler := handlers.NewMemoryHandler(logger.L, memoryService, chatService, accountService)
-	channelIdentitySvc := identities.NewService(logger.L, queries)
-	preauthService := preauth.NewService(queries)
-	preauthHandler := handlers.NewPreauthHandler(preauthService, botService, accountService)
-	bindService := bind.NewService(logger.L, conn, queries)
-	bindHandler := handlers.NewBindHandler(logger.L, bindService)
-	mcpConnectionsService := mcp.NewConnectionService(logger.L, queries)
-	mcpHandler := handlers.NewMCPHandler(logger.L, mcpConnectionsService, botService, accountService)
-	chatResolver = flow.NewResolver(logger.L, modelsService, queries, memoryService, chatService, messageService, settingsService, mcpConnectionsService, cfg.AgentGateway.BaseURL(), 120*time.Second)
-	chatResolver.SetSkillLoader(&skillLoaderAdapter{handler: containerdHandler})
-	embeddingsHandler := handlers.NewEmbeddingsHandler(logger.L, modelsService, queries)
-	swaggerHandler := handlers.NewSwaggerHandler(logger.L)
-	conversationHandler := handlers.NewMessageHandler(logger.L, chatResolver, chatService, messageService, botService, accountService, channelIdentitySvc, messageEvents)
-	channelRegistry := channel.NewRegistry()
-	routeHub := local.NewRouteHub()
-	channelRegistry.MustRegister(telegram.NewTelegramAdapter(logger.L))
-	channelRegistry.MustRegister(feishu.NewFeishuAdapter(logger.L))
-	channelRegistry.MustRegister(local.NewCLIAdapter(routeHub))
-	channelRegistry.MustRegister(local.NewWebAdapter(routeHub))
-	channelService := channel.NewService(queries, channelRegistry)
-	channelRouter := router.NewChannelInboundProcessor(logger.L, channelRegistry, routeService, messageService, chatResolver, channelIdentitySvc, botService, policyService, preauthService, bindService, cfg.Auth.JWTSecret, 5*time.Minute)
-	channelManager := channel.NewManager(logger.L, channelRegistry, channelService, channelRouter)
+func provideMemoryService(log *slog.Logger, llm memory.LLM, embedder embeddings.Embedder, store *memory.QdrantStore, resolver *embeddings.Resolver, bm25 *memory.BM25Indexer, setup embeddingSetup) *memory.Service {
+	return memory.NewService(log, llm, embedder, store, resolver, bm25, setup.TextModel.ModelID, setup.MultimodalModel.ModelID)
+}
+
+// ---------------------------------------------------------------------------
+// domain service providers (interface adapters)
+// ---------------------------------------------------------------------------
+
+func provideRouteService(log *slog.Logger, queries *dbsqlc.Queries, chatService *conversation.Service) *route.DBService {
+	return route.NewService(log, queries, chatService)
+}
+
+func provideMessageService(log *slog.Logger, queries *dbsqlc.Queries, hub *event.Hub) *message.DBService {
+	return message.NewService(log, queries, hub)
+}
+
+func provideScheduleTriggerer(resolver *flow.Resolver) schedule.Triggerer {
+	return flow.NewScheduleGateway(resolver)
+}
+
+// ---------------------------------------------------------------------------
+// conversation flow
+// ---------------------------------------------------------------------------
+
+func provideChatResolver(log *slog.Logger, cfg config.Config, modelsService *models.Service, queries *dbsqlc.Queries, memoryService *memory.Service, chatService *conversation.Service, msgService *message.DBService, settingsService *settings.Service, mcpConnService *mcp.ConnectionService, containerdHandler *handlers.ContainerdHandler) *flow.Resolver {
+	resolver := flow.NewResolver(log, modelsService, queries, memoryService, chatService, msgService, settingsService, mcpConnService, cfg.AgentGateway.BaseURL(), 120*time.Second)
+	resolver.SetSkillLoader(&skillLoaderAdapter{handler: containerdHandler})
+	return resolver
+}
+
+// ---------------------------------------------------------------------------
+// channel providers
+// ---------------------------------------------------------------------------
+
+func provideChannelRegistry(log *slog.Logger, hub *local.RouteHub) *channel.Registry {
+	registry := channel.NewRegistry()
+	registry.MustRegister(telegram.NewTelegramAdapter(log))
+	registry.MustRegister(feishu.NewFeishuAdapter(log))
+	registry.MustRegister(local.NewCLIAdapter(hub))
+	registry.MustRegister(local.NewWebAdapter(hub))
+	return registry
+}
+
+func provideChannelRouter(log *slog.Logger, registry *channel.Registry, routeService *route.DBService, msgService *message.DBService, resolver *flow.Resolver, identityService *identities.Service, botService *bots.Service, policyService *policy.Service, preauthService *preauth.Service, bindService *bind.Service, rc *boot.RuntimeConfig) *router.ChannelInboundProcessor {
+	return router.NewChannelInboundProcessor(log, registry, routeService, msgService, resolver, identityService, botService, policyService, preauthService, bindService, rc.JwtSecret, 5*time.Minute)
+}
+
+func provideChannelManager(log *slog.Logger, registry *channel.Registry, channelService *channel.Service, channelRouter *router.ChannelInboundProcessor) *channel.Manager {
+	mgr := channel.NewManager(log, registry, channelService, channelRouter)
 	if mw := channelRouter.IdentityMiddleware(); mw != nil {
-		channelManager.Use(mw)
+		mgr.Use(mw)
 	}
-	channelManager.Start(ctx)
-	channelHandler := handlers.NewChannelHandler(channelService, channelRegistry)
-	usersHandler := handlers.NewUsersHandler(logger.L, accountService, channelIdentitySvc, botService, routeService, channelService, channelManager, channelRegistry)
-	cliHandler := handlers.NewLocalChannelHandler(local.CLIType, channelManager, channelService, chatService, routeHub, botService, accountService)
-	webHandler := handlers.NewLocalChannelHandler(local.WebType, channelManager, channelService, chatService, routeHub, botService, accountService)
-	scheduleGateway := flow.NewScheduleGateway(chatResolver)
-	scheduleService := schedule.NewService(logger.L, queries, scheduleGateway, cfg.Auth.JWTSecret)
-	if err := scheduleService.Bootstrap(ctx); err != nil {
-		logger.Error("schedule bootstrap", slog.Any("error", err))
-		os.Exit(1)
-	}
-	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService, botService, accountService)
-	subagentService := subagent.NewService(logger.L, queries)
-	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService, botService, accountService)
-	messageToolExecutor := mcpmessage.NewExecutor(logger.L, channelManager, channelRegistry)
-	directoryToolExecutor := mcpdirectory.NewExecutor(logger.L, channelRegistry, channelService, channelRegistry)
-	scheduleToolExecutor := mcpschedule.NewExecutor(logger.L, scheduleService)
-	memoryToolExecutor := mcpmemory.NewExecutor(logger.L, memoryService, chatService, accountService)
+	return mgr
+}
+
+// ---------------------------------------------------------------------------
+// containerd handler & tool gateway
+// ---------------------------------------------------------------------------
+
+func provideContainerdHandler(log *slog.Logger, service ctr.Service, cfg config.Config, botService *bots.Service, accountService *accounts.Service, policyService *policy.Service, queries *dbsqlc.Queries) *handlers.ContainerdHandler {
+	return handlers.NewContainerdHandler(log, service, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, policyService, queries)
+}
+
+func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManager *channel.Manager, registry *channel.Registry, channelService *channel.Service, scheduleService *schedule.Service, memoryService *memory.Service, chatService *conversation.Service, accountService *accounts.Service, manager *mcp.Manager, containerdHandler *handlers.ContainerdHandler, mcpConnService *mcp.ConnectionService) *mcp.ToolGatewayService {
+	messageExec := mcpmessage.NewExecutor(log, channelManager, registry)
+	directoryExec := mcpdirectory.NewExecutor(log, registry, channelService, registry)
+	scheduleExec := mcpschedule.NewExecutor(log, scheduleService)
+	memoryExec := mcpmemory.NewExecutor(log, memoryService, chatService, accountService)
 	execWorkDir := cfg.MCP.DataMount
 	if strings.TrimSpace(execWorkDir) == "" {
 		execWorkDir = config.DefaultDataMount
 	}
-	fsToolExecutor := mcpcontainer.NewExecutor(logger.L, manager, execWorkDir)
-	federationGateway := handlers.NewMCPFederationGateway(logger.L, containerdHandler)
-	federatedToolSource := mcpfederation.NewSource(logger.L, federationGateway, mcpConnectionsService)
-	toolGatewayService := mcp.NewToolGatewayService(
-		logger.L,
-		[]mcp.ToolExecutor{
-			messageToolExecutor,
-			directoryToolExecutor,
-			scheduleToolExecutor,
-			memoryToolExecutor,
-			fsToolExecutor,
-		},
-		[]mcp.ToolSource{
-			federatedToolSource,
-		},
-	)
-	containerdHandler.SetToolGatewayService(toolGatewayService)
-	go containerdHandler.ReconcileContainers(ctx)
-	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, conversationHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, preauthHandler, bindHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler, usersHandler, mcpHandler, cliHandler, webHandler)
+	fsExec := mcpcontainer.NewExecutor(log, manager, execWorkDir)
 
-	if err := srv.Start(); err != nil {
-		logger.Error("server failed", slog.Any("error", err))
-		os.Exit(1)
-	}
+	fedGateway := handlers.NewMCPFederationGateway(log, containerdHandler)
+	fedSource := mcpfederation.NewSource(log, fedGateway, mcpConnService)
+
+	svc := mcp.NewToolGatewayService(
+		log,
+		[]mcp.ToolExecutor{messageExec, directoryExec, scheduleExec, memoryExec, fsExec},
+		[]mcp.ToolSource{fedSource},
+	)
+	containerdHandler.SetToolGatewayService(svc)
+	return svc
 }
+
+// ---------------------------------------------------------------------------
+// handler providers (interface adaptation / config extraction)
+// ---------------------------------------------------------------------------
+
+func provideAuthHandler(log *slog.Logger, accountService *accounts.Service, rc *boot.RuntimeConfig) *handlers.AuthHandler {
+	return handlers.NewAuthHandler(log, accountService, rc.JwtSecret, rc.JwtExpiresIn)
+}
+
+func provideMessageHandler(log *slog.Logger, resolver *flow.Resolver, chatService *conversation.Service, msgService *message.DBService, botService *bots.Service, accountService *accounts.Service, identityService *identities.Service, hub *event.Hub) *handlers.MessageHandler {
+	return handlers.NewMessageHandler(log, resolver, chatService, msgService, botService, accountService, identityService, hub)
+}
+
+func provideUsersHandler(log *slog.Logger, accountService *accounts.Service, identityService *identities.Service, botService *bots.Service, routeService *route.DBService, channelService *channel.Service, channelManager *channel.Manager, registry *channel.Registry) *handlers.UsersHandler {
+	return handlers.NewUsersHandler(log, accountService, identityService, botService, routeService, channelService, channelManager, registry)
+}
+
+func provideCLIHandler(channelManager *channel.Manager, channelService *channel.Service, chatService *conversation.Service, hub *local.RouteHub, botService *bots.Service, accountService *accounts.Service) *handlers.LocalChannelHandler {
+	return handlers.NewLocalChannelHandler(local.CLIType, channelManager, channelService, chatService, hub, botService, accountService)
+}
+
+func provideWebHandler(channelManager *channel.Manager, channelService *channel.Service, chatService *conversation.Service, hub *local.RouteHub, botService *bots.Service, accountService *accounts.Service) *handlers.LocalChannelHandler {
+	return handlers.NewLocalChannelHandler(local.WebType, channelManager, channelService, chatService, hub, botService, accountService)
+}
+
+// ---------------------------------------------------------------------------
+// server
+// ---------------------------------------------------------------------------
+
+type serverParams struct {
+	fx.In
+
+	Logger            *slog.Logger
+	RuntimeConfig     *boot.RuntimeConfig
+	Config            config.Config
+	ServerHandlers    []server.Handler          `group:"server_handlers"`
+	ContainerdHandler *handlers.ContainerdHandler
+}
+
+func provideServer(params serverParams) *server.Server {
+	allHandlers := make([]server.Handler, 0, len(params.ServerHandlers)+1)
+	allHandlers = append(allHandlers, params.ServerHandlers...)
+	allHandlers = append(allHandlers, params.ContainerdHandler)
+	return server.NewServer(params.Logger, params.RuntimeConfig.ServerAddr, params.Config.Auth.JWTSecret, allHandlers...)
+}
+
+// ---------------------------------------------------------------------------
+// lifecycle hooks
+// ---------------------------------------------------------------------------
+
+func startMemoryWarmup(lc fx.Lifecycle, memoryService *memory.Service, logger *slog.Logger) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			go func() {
+				if err := memoryService.WarmupBM25(context.Background(), 200); err != nil {
+					logger.Warn("bm25 warmup failed", slog.Any("error", err))
+				}
+			}()
+			return nil
+		},
+	})
+}
+
+func startScheduleService(lc fx.Lifecycle, scheduleService *schedule.Service) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			return scheduleService.Bootstrap(ctx)
+		},
+	})
+}
+
+func startChannelManager(lc fx.Lifecycle, channelManager *channel.Manager) {
+	ctx, cancel := context.WithCancel(context.Background())
+	lc.Append(fx.Hook{
+		OnStart: func(_ context.Context) error {
+			channelManager.Start(ctx)
+			return nil
+		},
+		OnStop: func(stopCtx context.Context) error {
+			cancel()
+			return channelManager.Shutdown(stopCtx)
+		},
+	})
+}
+
+func startContainerReconciliation(lc fx.Lifecycle, containerdHandler *handlers.ContainerdHandler, _ *mcp.ToolGatewayService) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			go containerdHandler.ReconcileContainers(ctx)
+			return nil
+		},
+	})
+}
+
+func startServer(lc fx.Lifecycle, logger *slog.Logger, srv *server.Server, shutdowner fx.Shutdowner, cfg config.Config, queries *dbsqlc.Queries, botService *bots.Service, containerdHandler *handlers.ContainerdHandler) {
+	fmt.Printf("Starting Memoh Agent %s\n", version.GetInfo())
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			if err := ensureAdminUser(ctx, logger, queries, cfg); err != nil {
+				return err
+			}
+			botService.SetContainerLifecycle(containerdHandler)
+
+			go func() {
+				if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					logger.Error("server failed", slog.Any("error", err))
+					_ = shutdowner.Shutdown()
+				}
+			}()
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			if err := srv.Stop(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("server stop: %w", err)
+			}
+			return nil
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
 
 func buildTextEmbedder(resolver *embeddings.Resolver, textModel models.GetResponse, hasModels bool, log *slog.Logger) embeddings.Embedder {
 	if !hasModels {
@@ -247,40 +504,6 @@ func buildTextEmbedder(resolver *embeddings.Resolver, textModel models.GetRespon
 		ModelID:  textModel.ModelID,
 		Dims:     textModel.Dimensions,
 	}
-}
-
-func buildQdrantStore(log *slog.Logger, cfg config.QdrantConfig, vectors map[string]int, hasModels bool, textDims int) *memory.QdrantStore {
-	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
-	if hasModels && len(vectors) > 0 {
-		store, err := memory.NewQdrantStoreWithVectors(
-			log,
-			cfg.BaseURL,
-			cfg.APIKey,
-			cfg.Collection,
-			vectors,
-			"sparse_hash",
-			timeout,
-		)
-		if err != nil {
-			log.Error("qdrant named vectors init", slog.Any("error", err))
-			os.Exit(1)
-		}
-		return store
-	}
-	store, err := memory.NewQdrantStore(
-		log,
-		cfg.BaseURL,
-		cfg.APIKey,
-		cfg.Collection,
-		textDims,
-		"sparse_hash",
-		timeout,
-	)
-	if err != nil {
-		log.Error("qdrant init", slog.Any("error", err))
-		os.Exit(1)
-	}
-	return store
 }
 
 func ensureAdminUser(ctx context.Context, log *slog.Logger, queries *dbsqlc.Queries, cfg config.Config) error {
@@ -342,6 +565,10 @@ func ensureAdminUser(ctx context.Context, log *slog.Logger, queries *dbsqlc.Quer
 	log.Info("Admin user created", slog.String("username", username))
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// lazy LLM client
+// ---------------------------------------------------------------------------
 
 type lazyLLMClient struct {
 	modelsService *models.Service

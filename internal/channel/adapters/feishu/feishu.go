@@ -279,6 +279,9 @@ func (a *FeishuAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig, 
 			feishuCfg.EncryptKey,
 		)
 		eventDispatcher.OnP2MessageReceiveV1(func(_ context.Context, event *larkim.P2MessageReceiveV1) error {
+			if connCtx.Err() != nil {
+				return nil
+			}
 			msg := extractFeishuInbound(event)
 			text := msg.Message.PlainText()
 			rawMessageID := ""

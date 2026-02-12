@@ -165,10 +165,6 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 		for {
 			select {
 			case <-connCtx.Done():
-				if a.logger != nil {
-					a.logger.Info("stop", slog.String("config_id", cfg.ID))
-				}
-				bot.StopReceivingUpdates()
 				return
 			case update, ok := <-updates:
 				if !ok {
@@ -251,12 +247,19 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 		}
 	}()
 
-	stop := func(context.Context) error {
+	stop := func(_ context.Context) error {
 		if a.logger != nil {
 			a.logger.Info("stop", slog.String("config_id", cfg.ID))
 		}
-		cancel()
 		bot.StopReceivingUpdates()
+		cancel()
+		// Drain remaining updates so the library's polling goroutine can
+		// finish writing and exit. Without this, the in-flight long-poll
+		// HTTP request keeps the old getUpdates session alive, causing
+		// "Conflict: terminated by other getUpdates request" when a new
+		// connection starts with the same bot token.
+		for range updates {
+		}
 		return nil
 	}
 	return channel.NewConnection(cfg, stop), nil

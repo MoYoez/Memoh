@@ -494,7 +494,7 @@ func (r *IdentityResolver) resolveDisplayNameFromDirectory(ctx context.Context, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	entry, err := directoryAdapter.ResolveEntry(lookupCtx, cfg, subjectID, channel.DirectoryEntryUser)
 	if err != nil {

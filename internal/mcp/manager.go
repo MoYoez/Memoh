@@ -60,7 +60,7 @@ type Manager struct {
 	logger      *slog.Logger
 }
 
-func NewManager(log *slog.Logger, service ctr.Service, cfg config.MCPConfig, namespace string) *Manager {
+func NewManager(log *slog.Logger, service ctr.Service, cfg config.MCPConfig, namespace string, conn *pgxpool.Pool) *Manager {
 	if namespace == "" {
 		namespace = config.DefaultNamespace
 	}
@@ -68,17 +68,13 @@ func NewManager(log *slog.Logger, service ctr.Service, cfg config.MCPConfig, nam
 		service:   service,
 		cfg:       cfg,
 		namespace: namespace,
+		db:        conn,
+		queries:   dbsqlc.New(conn),
 		logger:    log.With(slog.String("component", "mcp")),
 		containerID: func(botID string) string {
 			return ContainerPrefix + botID
 		},
 	}
-}
-
-func (m *Manager) WithDB(db *pgxpool.Pool) *Manager {
-	m.db = db
-	m.queries = dbsqlc.New(db)
-	return m
 }
 
 func (m *Manager) Init(ctx context.Context) error {
