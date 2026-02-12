@@ -53,8 +53,8 @@ awk -v path="$MEMOH_DATA_ROOT" '
   { print }
 ' config.toml > config.toml.tmp && mv config.toml.tmp config.toml
 
-# 5. Prepare containerd / nerdctl environment
-#    Only for Debian-based distributions!
+# 5. Prepare containerd / nerdctl environment (Linux)
+#    The script auto-detects the distro/package manager (apt/dnf/yum/apk/zypper/pacman).
 sh scripts/containerd-install.sh || true
 
 # 6. Build the MCP image on the host using nerdctl + buildkit
