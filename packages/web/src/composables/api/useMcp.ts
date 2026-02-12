@@ -1,11 +1,23 @@
-import { fetchApi } from '@/utils/request'
+import { client } from '@memoh/sdk/client'
 import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
-import { type MCPListItem } from '@memoh/shared'
 
 // ---- Types ----
 
-export interface McpListResponse {
-  items: MCPListItem[]
+export interface MCPListItem {
+  id: string
+  type: string
+  name: string
+  config: {
+    cwd: string
+    env: Record<string, string>
+    args: string[]
+    type: string
+    command: string
+  }
+  active: boolean
+  user: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CreateMcpRequest {
@@ -21,14 +33,16 @@ export interface UpdateMcpRequest extends CreateMcpRequest {
 // ---- Query: MCP list ----
 
 export function useMcpList() {
-  const query = useQuery({
+  return useQuery({
     key: ['mcp'],
     query: async () => {
-      const res = await fetchApi<McpListResponse>('/mcp/')
-      return res.items
+      const { data } = await client.get({
+        url: '/mcp/',
+        throwOnError: true,
+      }) as { data: { items: MCPListItem[] } }
+      return data.items
     },
   })
-  return query
 }
 
 // ---- Mutations ----
@@ -38,10 +52,9 @@ export function useCreateOrUpdateMcp() {
   return useMutation({
     mutation: (data: UpdateMcpRequest) => {
       const isEdit = !!data.id
-      return fetchApi(isEdit ? `/mcp/${data.id}` : '/mcp/', {
-        method: isEdit ? 'PUT' : 'POST',
-        body: data,
-      })
+      return isEdit
+        ? client.put({ url: `/mcp/${data.id}`, body: data, throwOnError: true })
+        : client.post({ url: '/mcp/', body: data, throwOnError: true })
     },
     onSettled: () => queryCache.invalidateQueries({ key: ['mcp'] }),
   })
@@ -50,9 +63,8 @@ export function useCreateOrUpdateMcp() {
 export function useDeleteMcp() {
   const queryCache = useQueryCache()
   return useMutation({
-    mutation: (id: string) => fetchApi(`/mcp/${id}`, {
-      method: 'DELETE',
-    }),
+    mutation: (id: string) =>
+      client.delete({ url: `/mcp/${id}`, throwOnError: true }),
     onSettled: () => queryCache.invalidateQueries({ key: ['mcp'] }),
   })
 }

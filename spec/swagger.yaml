@@ -791,6 +791,8 @@ definitions:
     type: object
   identities.ChannelIdentity:
     properties:
+      avatar_url:
+        type: string
       channel:
         type: string
       channel_subject_id:
@@ -911,14 +913,24 @@ definitions:
     - openai-compat
     - anthropic
     - google
+    - azure
+    - bedrock
+    - mistral
+    - xai
     - ollama
+    - dashscope
     type: string
     x-enum-varnames:
     - ClientTypeOpenAI
     - ClientTypeOpenAICompat
     - ClientTypeAnthropic
     - ClientTypeGoogle
+    - ClientTypeAzure
+    - ClientTypeBedrock
+    - ClientTypeMistral
+    - ClientTypeXAI
     - ClientTypeOllama
+    - ClientTypeDashscope
   providers.CountResponse:
     properties:
       count:
@@ -2850,7 +2862,8 @@ paths:
         in: query
         name: type
         type: string
-      - description: Client type (openai, anthropic, google)
+      - description: Client type (openai, openai-compat, anthropic, google, azure,
+          bedrock, mistral, xai, ollama, dashscope)
         in: query
         name: client_type
         type: string
@@ -3136,7 +3149,8 @@ paths:
       description: Get a list of all configured LLM providers, optionally filtered
         by client type
       parameters:
-      - description: Client type filter (openai, anthropic, google, ollama)
+      - description: Client type filter (openai, openai-compat, anthropic, google,
+          azure, bedrock, mistral, xai, ollama, dashscope)
         in: query
         name: client_type
         type: string
@@ -3332,7 +3346,8 @@ paths:
       description: Get the total count of providers, optionally filtered by client
         type
       parameters:
-      - description: Client type filter (openai, anthropic, google, ollama)
+      - description: Client type filter (openai, openai-compat, anthropic, google,
+          azure, bedrock, mistral, xai, ollama, dashscope)
         in: query
         name: client_type
         type: string

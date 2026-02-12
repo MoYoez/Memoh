@@ -260,7 +260,7 @@ import z from 'zod'
 import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
 import { ref, inject, watch } from 'vue'
-import { type MCPListItem as MCPType } from '@memoh/shared'
+import { type MCPListItem as MCPType } from '@/composables/api/useMcp'
 import { useKeyValueTags } from '@/composables/useKeyValueTags'
 import { useCreateOrUpdateMcp } from '@/composables/api/useMcp'
 

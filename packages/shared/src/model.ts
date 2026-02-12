@@ -1,7 +1,14 @@
 export enum ModelClientType {
   OPENAI = 'openai',
+  OPENAI_COMPAT = 'openai-compat',
   ANTHROPIC = 'anthropic',
   GOOGLE = 'google',
+  AZURE = 'azure',
+  BEDROCK = 'bedrock',
+  MISTRAL = 'mistral',
+  XAI = 'xai',
+  OLLAMA = 'ollama',
+  DASHSCOPE = 'dashscope',
 }
 
 export enum ModelType {
@@ -69,7 +76,7 @@ export type Model = EmbeddingModel | ChatModel
 export interface ModelList {
   apiKey: string,
   baseUrl: string,
-  clientType: 'OpenAI' | 'Anthropic' | 'Google',
+  clientType: 'OpenAI' | 'OpenAI-Compat' | 'Anthropic' | 'Google' | 'Azure' | 'Bedrock' | 'Mistral' | 'xAI' | 'Ollama' | 'DashScope',
   modelId: string,
   name: string,
   type: 'chat' | 'embedding',
@@ -98,4 +105,7 @@ export interface ModelInfo{
   enable_as?:string
 }
 
-export const clientType = ['openai', 'anthropic', 'google', 'ollama'] as const
+export const clientType = [
+  'openai', 'openai-compat', 'anthropic', 'google',
+  'azure', 'bedrock', 'mistral', 'xai', 'ollama', 'dashscope',
+] as const

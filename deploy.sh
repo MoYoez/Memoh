@@ -48,6 +48,12 @@ fi
 MEMOH_DATA_ROOT="$(pwd)/.data/memoh"
 mkdir -p "${MEMOH_DATA_ROOT}"
 export MEMOH_DATA_ROOT
+
+# Build metadata
+export MEMOH_VERSION="${MEMOH_VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+export MEMOH_COMMIT="${MEMOH_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+export MEMOH_BUILD_TIME="${MEMOH_BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+echo -e "${GREEN}✓ Version: ${MEMOH_VERSION} (${MEMOH_COMMIT}) built at ${MEMOH_BUILD_TIME}${NC}"
 if grep -q '^data_root[[:space:]]*=' config.toml; then
     awk -v path="${MEMOH_DATA_ROOT}" '
         $0 ~ /^data_root[[:space:]]*=/ { print "data_root = \"" path "\""; next }

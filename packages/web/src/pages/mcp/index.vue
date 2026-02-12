@@ -17,7 +17,7 @@ import {
   Badge,
   Button
 } from '@memoh/ui'
-import { type MCPListItem as MCPType } from '@memoh/shared'
+import { type MCPListItem as MCPType } from '@/composables/api/useMcp'
 import { useMcpList, useDeleteMcp } from '@/composables/api/useMcp'
 import { useI18n } from 'vue-i18n'
 

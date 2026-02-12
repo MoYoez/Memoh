@@ -127,6 +127,7 @@ func setupObservedChatScenario(t *testing.T) (chatPresenceFixture, string, strin
 		"feishu",
 		fmt.Sprintf("presence-channelIdentity-%d", time.Now().UnixNano()),
 		"presence-observer",
+		nil,
 	)
 	if err != nil {
 		fixture.cleanup()

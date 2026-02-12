@@ -20,7 +20,7 @@ Default credentials: `admin` / `admin123`
 ```bash
 cp docker/config/config.docker.toml config.toml
 nano config.toml  # Change passwords and secrets
-nerdctl build -f docker/Dockerfile.mcp -t memoh-mcp:latest .
+nerdctl build -f docker/Dockerfile.mcp -t docker.io/library/memoh-mcp:latest .
 docker compose up -d
 ```
 
@@ -37,7 +37,7 @@ Must change in `config.toml`:
 docker compose up -d          # Start
 docker compose down           # Stop
 docker compose logs -f        # View logs
-nerdctl ps -a | grep memoh-bot # View bot containers
+nerdctl images                # Ensure that memoh-mcp:latest exsits
 ```
 
 ## Production

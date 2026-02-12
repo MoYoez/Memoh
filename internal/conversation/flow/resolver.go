@@ -406,16 +406,18 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 			errCh <- err
 			return
 		}
-		if err := r.persistUserMessage(ctx, streamReq); err != nil {
-			r.logger.Error("gateway stream persist user message failed",
-				slog.String("bot_id", streamReq.BotID),
-				slog.String("chat_id", streamReq.ChatID),
-				slog.Any("error", err),
-			)
-			errCh <- err
-			return
+		if !streamReq.UserMessagePersisted {
+			if err := r.persistUserMessage(ctx, streamReq); err != nil {
+				r.logger.Error("gateway stream persist user message failed",
+					slog.String("bot_id", streamReq.BotID),
+					slog.String("chat_id", streamReq.ChatID),
+					slog.Any("error", err),
+				)
+				errCh <- err
+				return
+			}
+			streamReq.UserMessagePersisted = true
 		}
-		streamReq.UserMessagePersisted = true
 		if err := r.streamChat(ctx, rc.payload, streamReq, chunkCh); err != nil {
 			r.logger.Error("gateway stream request failed",
 				slog.String("bot_id", streamReq.BotID),
@@ -1128,13 +1130,11 @@ func (r *Resolver) loadBotSettings(ctx context.Context, botID string) (settings.
 // --- utility ---
 
 func normalizeClientType(clientType string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(clientType)) {
-	case "openai", "openai-compat":
-		return "openai", nil
-	case "anthropic":
-		return "anthropic", nil
-	case "google":
-		return "google", nil
+	ct := strings.ToLower(strings.TrimSpace(clientType))
+	switch ct {
+	case "openai", "openai-compat", "anthropic", "google",
+		"azure", "bedrock", "mistral", "xai", "ollama", "dashscope":
+		return ct, nil
 	default:
 		return "", fmt.Errorf("unsupported agent gateway client type: %s", clientType)
 	}

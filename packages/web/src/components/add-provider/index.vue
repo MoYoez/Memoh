@@ -89,7 +89,7 @@
                     <SelectContent>
                       <SelectGroup>
                         <SelectItem
-                          v-for="type in clientType"
+                          v-for="type in CLIENT_TYPES"
                           :key="type"
                           :value="type"
                         >
@@ -152,12 +152,22 @@ import {
 import { toTypedSchema } from '@vee-validate/zod'
 import z from 'zod'
 import { useForm } from 'vee-validate'
-import { clientType } from '@memoh/shared'
-import { useCreateProvider } from '@/composables/api/useProviders'
+import { useMutation, useQueryCache } from '@pinia/colada'
+import { postProviders } from '@memoh/sdk'
+import type { ProvidersClientType } from '@memoh/sdk'
+
+const CLIENT_TYPES: ProvidersClientType[] = ['openai', 'openai-compat', 'anthropic', 'google', 'ollama']
 
 const open = defineModel<boolean>('open')
 
-const { mutate: providerFetch, isLoading } = useCreateProvider()
+const queryCache = useQueryCache()
+const { mutate: providerFetch, isLoading } = useMutation({
+  mutation: async (data: Record<string, unknown>) => {
+    const { data: result } = await postProviders({ body: data as any, throwOnError: true })
+    return result
+  },
+  onSettled: () => queryCache.invalidateQueries({ key: ['providers'] }),
+})
 
 const providerSchema = toTypedSchema(z.object({
   api_key: z.string().min(1),

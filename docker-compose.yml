@@ -1,7 +1,7 @@
 name: "memoh"
 services:
   postgres:
-    image: postgres:18.1-alpine
+    image: postgres:18-alpine
     container_name: memoh-postgres
     environment:
       POSTGRES_DB: memoh
@@ -42,6 +42,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.server
+      args:
+        - VERSION=${MEMOH_VERSION:-dev}
+        - COMMIT_HASH=${MEMOH_COMMIT:-unknown}
+        - BUILD_TIME=${MEMOH_BUILD_TIME:-unknown}
     container_name: memoh-server
     pid: host
     volumes:
@@ -49,7 +53,7 @@ services:
       - /run/containerd/containerd.sock:/run/containerd/containerd.sock
       - /var/lib/containerd:/var/lib/containerd
       - server_cni_state:/var/lib/cni
-      - /app/data:/app/data
+      - ${MEMOH_DATA_ROOT:-~/.memoh/data}:${MEMOH_DATA_ROOT:-/opt/memoh/data}
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN
@@ -58,12 +62,6 @@ services:
       - apparmor:unconfined
     ports:
       - "8080:8080"
-    healthcheck:
-      test: ["CMD-SHELL", "netstat -tln | grep :8080 || exit 1 "]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,14 +81,13 @@ services:
     ports:
       - "8081:8081"
     healthcheck:
-      test: ["CMD-SHELL", "netstat -tln | grep :8081 || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8081/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     depends_on:
-      server:
-        condition: service_healthy
+      - server
     restart: unless-stopped
     networks:
       - memoh-network
@@ -105,17 +102,9 @@ services:
     container_name: memoh-web
     ports:
       - "80:80"
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     depends_on:
-      server:
-        condition: service_healthy
-      agent:
-        condition: service_healthy
+      - server
+      - agent
     restart: unless-stopped
     networks:
       - memoh-network

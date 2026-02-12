@@ -28,6 +28,7 @@ type InboundIdentity struct {
 	ChannelIdentityID string
 	UserID            string
 	DisplayName       string
+	AvatarURL         string
 	ForceReply        bool
 }
 
@@ -59,7 +60,7 @@ func IdentityStateFromContext(ctx context.Context) (IdentityState, bool) {
 
 // ChannelIdentityService is the minimal interface for channel identity resolution.
 type ChannelIdentityService interface {
-	ResolveByChannelIdentity(ctx context.Context, channel, channelSubjectID, displayName string) (identities.ChannelIdentity, error)
+	ResolveByChannelIdentity(ctx context.Context, channel, channelSubjectID, displayName string, meta map[string]any) (identities.ChannelIdentity, error)
 	Canonicalize(ctx context.Context, channelIdentityID string) (string, error)
 	GetLinkedUserID(ctx context.Context, channelIdentityID string) (string, error)
 	LinkChannelIdentityToUser(ctx context.Context, channelIdentityID, userID string) error
@@ -169,7 +170,7 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 		channelConfigID = ""
 	}
 	subjectID := extractSubjectIdentity(msg)
-	displayName := r.resolveDisplayName(ctx, cfg, msg, subjectID)
+	displayName, avatarURL := r.resolveProfile(ctx, cfg, msg, subjectID)
 
 	state := IdentityState{
 		Identity: InboundIdentity{
@@ -184,7 +185,7 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 		return state, fmt.Errorf("cannot resolve identity: no channel_subject_id")
 	}
 
-	channelIdentityID, linkedUserID, err := r.resolveIdentityWithLinkedUser(ctx, msg, subjectID, displayName)
+	channelIdentityID, linkedUserID, err := r.resolveIdentityWithLinkedUser(ctx, msg, subjectID, displayName, avatarURL)
 	if err != nil {
 		return state, err
 	}
@@ -194,6 +195,7 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 		state.Identity.UserID = r.tryLinkConfiglessChannelIdentityToUser(ctx, msg, channelIdentityID)
 	}
 	state.Identity.DisplayName = displayName
+	state.Identity.AvatarURL = avatarURL
 
 	// Bind code check runs before membership/guest checks so linking is always reachable.
 	if handled, decision, newUserID, err := r.tryHandleBindCode(ctx, msg, channelIdentityID, subjectID); handled {
@@ -282,15 +284,20 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 	return state, nil
 }
 
-func (r *IdentityResolver) resolveIdentityWithLinkedUser(ctx context.Context, msg channel.InboundMessage, primarySubjectID, displayName string) (string, string, error) {
+func (r *IdentityResolver) resolveIdentityWithLinkedUser(ctx context.Context, msg channel.InboundMessage, primarySubjectID, displayName, avatarURL string) (string, string, error) {
 	candidates := identitySubjectCandidates(msg, primarySubjectID)
 	if len(candidates) == 0 {
 		return "", "", fmt.Errorf("cannot resolve identity: no channel_subject_id")
 	}
 
+	var meta map[string]any
+	if strings.TrimSpace(avatarURL) != "" {
+		meta = map[string]any{"avatar_url": strings.TrimSpace(avatarURL)}
+	}
+
 	firstChannelIdentityID := ""
 	for _, subjectID := range candidates {
-		channelIdentity, err := r.channelIdentities.ResolveByChannelIdentity(ctx, msg.Channel.String(), subjectID, displayName)
+		channelIdentity, err := r.channelIdentities.ResolveByChannelIdentity(ctx, msg.Channel.String(), subjectID, displayName, meta)
 		if err != nil {
 			return "", "", fmt.Errorf("resolve channel identity: %w", err)
 		}
@@ -471,25 +478,29 @@ func extractDisplayName(msg channel.InboundMessage) string {
 	return ""
 }
 
-func (r *IdentityResolver) resolveDisplayName(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, subjectID string) string {
+// resolveProfile resolves display name and avatar URL for the sender.
+// Always queries directory for avatar; prefers message-level display name over directory name.
+func (r *IdentityResolver) resolveProfile(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, subjectID string) (string, string) {
 	displayName := extractDisplayName(msg)
-	if displayName != "" {
-		return displayName
+	dirName, avatarURL := r.resolveProfileFromDirectory(ctx, cfg, msg, subjectID)
+	if displayName == "" {
+		displayName = dirName
 	}
-	return r.resolveDisplayNameFromDirectory(ctx, cfg, msg, subjectID)
+	return displayName, avatarURL
 }
 
-func (r *IdentityResolver) resolveDisplayNameFromDirectory(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, subjectID string) string {
+// resolveProfileFromDirectory looks up the directory for sender display name and avatar URL.
+func (r *IdentityResolver) resolveProfileFromDirectory(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, subjectID string) (string, string) {
 	if r.registry == nil {
-		return ""
+		return "", ""
 	}
 	subjectID = strings.TrimSpace(subjectID)
 	if subjectID == "" {
-		return ""
+		return "", ""
 	}
 	directoryAdapter, ok := r.registry.DirectoryAdapter(msg.Channel)
 	if !ok || directoryAdapter == nil {
-		return ""
+		return "", ""
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -500,21 +511,19 @@ func (r *IdentityResolver) resolveDisplayNameFromDirectory(ctx context.Context, 
 	if err != nil {
 		if r.logger != nil {
 			r.logger.Debug(
-				"resolve display name from directory failed",
+				"resolve profile from directory failed",
 				slog.String("channel", msg.Channel.String()),
 				slog.String("subject_id", subjectID),
 				slog.Any("error", err),
 			)
 		}
-		return ""
+		return "", ""
 	}
-	if name := strings.TrimSpace(entry.Name); name != "" {
-		return name
+	name := strings.TrimSpace(entry.Name)
+	if name == "" {
+		name = strings.TrimSpace(entry.Handle)
 	}
-	if handle := strings.TrimSpace(entry.Handle); handle != "" {
-		return handle
-	}
-	return ""
+	return name, strings.TrimSpace(entry.AvatarURL)
 }
 
 func extractThreadID(msg channel.InboundMessage) string {

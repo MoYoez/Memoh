@@ -191,13 +191,15 @@ func TestModelTypes(t *testing.T) {
 
 	t.Run("ClientType constants", func(t *testing.T) {
 		assert.Equal(t, models.ClientType("openai"), models.ClientTypeOpenAI)
+		assert.Equal(t, models.ClientType("openai-compat"), models.ClientTypeOpenAICompat)
 		assert.Equal(t, models.ClientType("anthropic"), models.ClientTypeAnthropic)
 		assert.Equal(t, models.ClientType("google"), models.ClientTypeGoogle)
-		assert.Equal(t, models.ClientType("bedrock"), models.ClientTypeBedrock)
-		assert.Equal(t, models.ClientType("ollama"), models.ClientTypeOllama)
 		assert.Equal(t, models.ClientType("azure"), models.ClientTypeAzure)
+		assert.Equal(t, models.ClientType("bedrock"), models.ClientTypeBedrock)
+		assert.Equal(t, models.ClientType("mistral"), models.ClientTypeMistral)
+		assert.Equal(t, models.ClientType("xai"), models.ClientTypeXAI)
+		assert.Equal(t, models.ClientType("ollama"), models.ClientTypeOllama)
 		assert.Equal(t, models.ClientType("dashscope"), models.ClientTypeDashscope)
-		assert.Equal(t, models.ClientType("other"), models.ClientTypeOther)
 	})
 }
 

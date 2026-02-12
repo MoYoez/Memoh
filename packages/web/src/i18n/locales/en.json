@@ -32,7 +32,8 @@
     "models": "Models",
     "settings": "Settings",
     "home": "Home",
-    "mcp": "MCP"
+    "mcp": "MCP",
+    "platform": "Platform"
   },
   "breadcrumb": {
     "main": "Home"
@@ -83,8 +84,14 @@
   },
   "chat": {
     "greeting": "Hi! How can I help you today?",
+    "selectBot": "Select a Bot",
+    "selectBotHint": "Choose a bot from the sidebar to start chatting",
+    "thinking": "Thinking…",
+    "thinkingInProgress": "Thinking…",
+    "thinkingDone": "Thinking complete",
     "currentBot": "Current Bot",
     "inputPlaceholder": "Type your question…",
+    "readonlyHint": "This chat is read-only",
     "readonlyPlaceholder": "This chat is read-only. Sending messages is disabled.",
     "send": "Send",
     "startChat": "Start Chat",
@@ -93,7 +100,12 @@
     "history": "History",
     "historyParticipant": "Chats",
     "historyObserved": "Observed Chats",
-    "readonly": "Read-only"
+    "readonly": "Read-only",
+    "toolDone": "Done",
+    "toolRunning": "Running",
+    "toolInput": "Input",
+    "toolResult": "Result",
+    "unknownUser": "{platform} User"
   },
   "models": {
     "title": "Models",

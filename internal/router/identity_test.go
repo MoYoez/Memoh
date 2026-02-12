@@ -21,11 +21,13 @@ type fakeChannelIdentityService struct {
 	linked          map[string]string
 	calls           int
 	lastDisplayName string
+	lastMeta        map[string]any
 }
 
-func (f *fakeChannelIdentityService) ResolveByChannelIdentity(ctx context.Context, platform, externalID, displayName string) (identities.ChannelIdentity, error) {
+func (f *fakeChannelIdentityService) ResolveByChannelIdentity(ctx context.Context, platform, externalID, displayName string, meta map[string]any) (identities.ChannelIdentity, error) {
 	f.calls++
 	f.lastDisplayName = displayName
+	f.lastMeta = meta
 	if f.err != nil {
 		return identities.ChannelIdentity{}, f.err
 	}
@@ -308,6 +310,55 @@ func TestIdentityResolverDirectoryLookupFailureDoesNotFallbackToOpenID(t *testin
 	}
 	if channelIdentitySvc.lastDisplayName != "" {
 		t.Fatalf("expected empty upsert display name on lookup failure, got %q", channelIdentitySvc.lastDisplayName)
+	}
+}
+
+func TestIdentityResolverDirectoryAvatarURLPropagated(t *testing.T) {
+	registry := channel.NewRegistry()
+	directoryAdapter := &fakeDirectoryAdapter{
+		channelType: channel.ChannelType("feishu"),
+		resolveFn: func(ctx context.Context, cfg channel.ChannelConfig, input string, kind channel.DirectoryEntryKind) (channel.DirectoryEntry, error) {
+			return channel.DirectoryEntry{
+				Kind:      channel.DirectoryEntryUser,
+				Name:      "Avatar User",
+				AvatarURL: "https://example.com/avatar.png",
+			}, nil
+		},
+	}
+	if err := registry.Register(directoryAdapter); err != nil {
+		t.Fatalf("register directory adapter failed: %v", err)
+	}
+
+	channelIdentitySvc := &fakeChannelIdentityService{channelIdentity: identities.ChannelIdentity{ID: "channelIdentity-avatar"}}
+	memberSvc := &fakeMemberService{isMember: true}
+	policySvc := &fakePolicyService{allow: false, botType: "public"}
+	resolver := NewIdentityResolver(slog.Default(), registry, channelIdentitySvc, memberSvc, policySvc, nil, nil, "", "")
+
+	msg := channel.InboundMessage{
+		BotID:       "bot-1",
+		Channel:     channel.ChannelType("feishu"),
+		Message:     channel.Message{Text: "hello"},
+		ReplyTarget: "target-id",
+		Sender: channel.Identity{
+			SubjectID:  "ou-avatar",
+			Attributes: map[string]string{"open_id": "ou-avatar"},
+		},
+	}
+	state, err := resolver.Resolve(context.Background(), channel.ChannelConfig{BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}, msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Identity.DisplayName != "Avatar User" {
+		t.Fatalf("expected display name Avatar User, got %q", state.Identity.DisplayName)
+	}
+	if state.Identity.AvatarURL != "https://example.com/avatar.png" {
+		t.Fatalf("expected avatar url, got %q", state.Identity.AvatarURL)
+	}
+	if channelIdentitySvc.lastMeta == nil {
+		t.Fatal("expected metadata with avatar_url to be passed to channel identity service")
+	}
+	if channelIdentitySvc.lastMeta["avatar_url"] != "https://example.com/avatar.png" {
+		t.Fatalf("expected avatar_url in meta, got %v", channelIdentitySvc.lastMeta)
 	}
 }
 

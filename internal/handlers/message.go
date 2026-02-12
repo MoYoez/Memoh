@@ -472,7 +472,7 @@ func (h *MessageHandler) resolveWebChannelIdentity(ctx context.Context, userID s
 			}
 		}
 	}
-	ci, err := h.channelIdentitySvc.ResolveByChannelIdentity(ctx, "web", userID, displayName)
+	ci, err := h.channelIdentitySvc.ResolveByChannelIdentity(ctx, "web", userID, displayName, nil)
 	if err != nil {
 		return userID
 	}

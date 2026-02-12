@@ -401,7 +401,7 @@ type serverParams struct {
 	Logger            *slog.Logger
 	RuntimeConfig     *boot.RuntimeConfig
 	Config            config.Config
-	ServerHandlers    []server.Handler          `group:"server_handlers"`
+	ServerHandlers    []server.Handler `group:"server_handlers"`
 	ContainerdHandler *handlers.ContainerdHandler
 }
 
@@ -610,7 +610,10 @@ func (c *lazyLLMClient) resolve(ctx context.Context) (memory.LLM, error) {
 		return nil, err
 	}
 	clientType := strings.ToLower(strings.TrimSpace(memoryProvider.ClientType))
-	if clientType != "openai" && clientType != "openai-compat" {
+	switch clientType {
+	case "openai", "openai-compat", "azure", "mistral", "xai", "ollama", "dashscope":
+		// These providers support OpenAI-compatible /chat/completions endpoint
+	default:
 		return nil, fmt.Errorf("memory provider client type not supported: %s", memoryProvider.ClientType)
 	}
 	return memory.NewLLMClient(c.logger, memoryProvider.BaseUrl, memoryProvider.ApiKey, memoryModel.ModelID, c.timeout)

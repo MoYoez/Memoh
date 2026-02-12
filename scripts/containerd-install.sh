@@ -1,6 +1,24 @@
 #!/usr/bin/env sh
 set -e
 
+detect_distro() {
+  DISTRO_ID="unknown"
+  DISTRO_LIKE=""
+
+  # shellcheck disable=SC1091
+  if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    if [ -n "${ID:-}" ]; then
+      DISTRO_ID="$ID"
+    fi
+    if [ -n "${ID_LIKE:-}" ]; then
+      DISTRO_LIKE="$ID_LIKE"
+    fi
+  fi
+}
+
+detect_distro
+
 if [ "$(uname -s)" = "Darwin" ]; then
   limactl start default
   limactl shell default -- sudo containerd --version
@@ -18,15 +36,22 @@ if command -v containerd >/dev/null 2>&1 \
 fi
 
 if ! command -v containerd >/dev/null 2>&1; then
+  echo "Detected distro: ${DISTRO_ID}${DISTRO_LIKE:+ (like: $DISTRO_LIKE)}"
+
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y containerd
+    # Debian/Ubuntu usually provide "containerd"; some setups use "containerd.io".
+    sudo apt-get install -y containerd || sudo apt-get install -y containerd.io
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y containerd
+    sudo dnf install -y containerd || sudo dnf install -y containerd.io
   elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y containerd
+    sudo yum install -y containerd || sudo yum install -y containerd.io
   elif command -v apk >/dev/null 2>&1; then
     sudo apk add --no-cache containerd
+  elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper --non-interactive install -y containerd
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm containerd
   else
     echo "No supported package manager found. Install containerd manually."
     exit 1

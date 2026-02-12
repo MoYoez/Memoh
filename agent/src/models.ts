@@ -8,7 +8,10 @@ export const AgentSkillModel = z.object({
   metadata: z.record(z.string(), z.any()).optional(),
 })
 
-export const ClientTypeModel = z.enum(['openai', 'openai-compatible', 'anthropic', 'google'])
+export const ClientTypeModel = z.enum([
+  'openai', 'openai-compat', 'anthropic', 'google',
+  'azure', 'bedrock', 'mistral', 'xai', 'ollama', 'dashscope',
+])
 
 export const ModelConfigModel = z.object({
   modelId: z.string().min(1, 'Model ID is required'),

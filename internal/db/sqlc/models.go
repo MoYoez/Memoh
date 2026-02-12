@@ -93,6 +93,7 @@ type ChannelIdentity struct {
 	ChannelType      string             `json:"channel_type"`
 	ChannelSubjectID string             `json:"channel_subject_id"`
 	DisplayName      pgtype.Text        `json:"display_name"`
+	AvatarUrl        pgtype.Text        `json:"avatar_url"`
 	Metadata         []byte             `json:"metadata"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`

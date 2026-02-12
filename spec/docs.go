@@ -2535,7 +2535,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Client type (openai, anthropic, google)",
+                        "description": "Client type (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)",
                         "name": "client_type",
                         "in": "query"
                     }
@@ -2970,7 +2970,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Client type filter (openai, anthropic, google, ollama)",
+                        "description": "Client type filter (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)",
                         "name": "client_type",
                         "in": "query"
                     }
@@ -3060,7 +3060,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Client type filter (openai, anthropic, google, ollama)",
+                        "description": "Client type filter (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)",
                         "name": "client_type",
                         "in": "query"
                     }
@@ -5004,6 +5004,9 @@ const docTemplate = `{
         "identities.ChannelIdentity": {
             "type": "object",
             "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
                 "channel": {
                     "type": "string"
                 },
@@ -5184,14 +5187,24 @@ const docTemplate = `{
                 "openai-compat",
                 "anthropic",
                 "google",
-                "ollama"
+                "azure",
+                "bedrock",
+                "mistral",
+                "xai",
+                "ollama",
+                "dashscope"
             ],
             "x-enum-varnames": [
                 "ClientTypeOpenAI",
                 "ClientTypeOpenAICompat",
                 "ClientTypeAnthropic",
                 "ClientTypeGoogle",
-                "ClientTypeOllama"
+                "ClientTypeAzure",
+                "ClientTypeBedrock",
+                "ClientTypeMistral",
+                "ClientTypeXAI",
+                "ClientTypeOllama",
+                "ClientTypeDashscope"
             ]
         },
         "providers.CountResponse": {

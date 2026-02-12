@@ -1,62 +1,78 @@
 <template>
   <aside class="[&_[data-state=collapsed]_:is(.title-container,.exist-btn)]:hidden">
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <button
-          class="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left group-data-[state=collapsed]:w-8 group-data-[state=collapsed]:min-w-8 group-data-[state=collapsed]:max-w-8 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:p-2"
-          @click="onLogoClick"
-        >
+      <SidebarHeader class="group-data-[state=collapsed]:hidden">
+        <div class="flex items-center gap-2 px-3 py-2">
           <img
             src="/logo.png"
-            class="size-8 shrink-0 object-contain"
+            class="size-8"
             alt="logo"
           >
-          <span class="text-xl font-bold text-gray-500 dark:text-gray-400 group-data-[state=collapsed]:hidden">
+          <span class="text-xl font-bold text-gray-500 dark:text-gray-400">
             Memoh
           </span>
-        </button>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
-        <ChatListMenu :collapsible="true" />
-        <SettingsListMenu :collapsible="true" />
+        <SidebarGroup>
+          <SidebarGroupContent class="[&_ul+ul]:mt-2!">
+            <SidebarMenu
+              v-for="sidebarItem in sidebarInfo"
+              :key="sidebarItem.title"
+            >
+              <SidebarMenuItem class="[&_[aria-pressed=true]]:bg-accent!">
+                <SidebarMenuButton
+                  as-child
+                  class="justify-start py-5! px-4"
+                  :tooltip="sidebarItem.title"
+                >
+                  <Toggle
+                    :class="`border border-transparent w-full flex justify-start ${curSlider === sidebarItem.name ? 'border-inherit' : ''}`"
+                    :model-value="curSelectSlide(sidebarItem.name as string).value"
+                    @update:model-value="(isSelect) => {
+                      if (isSelect) {
+                        curSlider = sidebarItem.name
+                      }
+                    }"
+                    @click="router.push({ name: sidebarItem.name })"
+                  >
+                    <FontAwesomeIcon :icon="sidebarItem.icon" />
+                    <span>{{ sidebarItem.title }}</span>
+                  </Toggle>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
+
       <SidebarFooter class="border-t p-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="size-8 shrink-0 p-0"
-            :title="isUserSettingsRoute ? $t('common.back') : $t('sidebar.settings')"
-            @click="onUserSettingsAction"
-          >
-            <Avatar class="size-8">
-              <AvatarImage
-                v-if="userInfo.avatarUrl"
-                :src="userInfo.avatarUrl"
-                :alt="displayTitle"
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              class="justify-start px-2 py-2"
+              :tooltip="displayTitle"
+              @click="onUserAction"
+            >
+              <Avatar class="size-7 shrink-0">
+                <AvatarImage
+                  v-if="userInfo.avatarUrl"
+                  :src="userInfo.avatarUrl"
+                  :alt="displayTitle"
+                />
+                <AvatarFallback class="text-[10px]">
+                  {{ avatarFallback }}
+                </AvatarFallback>
+              </Avatar>
+              <span class="truncate text-sm">{{ displayNameLabel }}</span>
+              <FontAwesomeIcon
+                :icon="['fas', 'gear']"
+                class="ml-auto size-3.5 text-muted-foreground"
               />
-              <AvatarFallback class="text-xs">
-                {{ avatarFallback }}
-              </AvatarFallback>
-            </Avatar>
-          </Button>
-          <span class="text-sm truncate min-w-0 flex-1 group-data-[state=collapsed]:hidden">
-            {{ displayNameLabel }}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="shrink-0 group-data-[state=collapsed]:hidden"
-            :title="isUserSettingsRoute ? $t('common.back') : $t('sidebar.settings')"
-            @click="onUserSettingsAction"
-          >
-            <FontAwesomeIcon
-              :icon="isUserSettingsRoute ? ['fas', 'arrow-left'] : ['fas', 'gear']"
-              class="size-3.5"
-            />
-          </Button>
-        </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   </aside>
@@ -67,58 +83,70 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-  Button,
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  Toggle,
 } from '@memoh/ui'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import ChatListMenu from './lists/chat-list-menu.vue'
-import SettingsListMenu from './lists/settings-list-menu.vue'
-import { useUserStore } from '@/store/User'
+import { useI18n } from 'vue-i18n'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
 const route = useRoute()
-
+const { t } = useI18n()
 const { userInfo } = useUserStore()
-const displayNameLabel = computed(() => userInfo.displayName || userInfo.username || userInfo.id || '-')
-const displayTitle = computed(() => userInfo.displayName || userInfo.username || userInfo.id || 'User')
-const avatarFallback = computed(() => displayTitle.value.slice(0, 2).toUpperCase() || 'U')
-const collapsedHiddenClass = 'group-data-[state=collapsed]:hidden'
-const isUserSettingsRoute = computed(() => route.name === 'settings-user')
-const lastNonUserSettingsPath = ref('')
 
-watch(
-  () => route.fullPath,
-  () => {
-    if (route.name !== 'settings-user') {
-      lastNonUserSettingsPath.value = route.fullPath
-    }
-  },
-  { immediate: true },
+const displayNameLabel = computed(() =>
+  userInfo.displayName || userInfo.username || userInfo.id || '-',
+)
+const displayTitle = computed(() =>
+  userInfo.displayName || userInfo.username || userInfo.id || t('settings.user'),
+)
+const avatarFallback = computed(() =>
+  displayTitle.value.slice(0, 2).toUpperCase() || 'U',
 )
 
-function onLogoClick() {
-  if (route.name === 'chat') {
-    return
-  }
-  void router.push({ name: 'chat' }).catch(() => undefined)
-}
+const curSlider = ref()
+const curSelectSlide = (cur: string) => computed(() => {
+  return curSlider.value === cur || new RegExp(`^/${cur}$`).test(route.path)
+})
 
-function onUserSettingsAction() {
-  if (!isUserSettingsRoute.value) {
+const sidebarInfo = computed(() => [
+  {
+    title: t('sidebar.chat'),
+    name: 'chat',
+    icon: ['fas', 'comment-dots'],
+  },
+  {
+    title: t('sidebar.bots'),
+    name: 'bots',
+    icon: ['fas', 'robot'],
+  },
+  {
+    title: t('sidebar.models'),
+    name: 'models',
+    icon: ['fas', 'cubes'],
+  },
+  {
+    title: t('sidebar.settings'),
+    name: 'settings',
+    icon: ['fas', 'gear'],
+  },
+])
+
+function onUserAction() {
+  if (route.name === 'settings-user') {
+    void router.push({ name: 'settings' }).catch(() => undefined)
+  } else {
     void router.push({ name: 'settings-user' }).catch(() => undefined)
-    return
   }
-
-  const fallbackPath = '/main/settings'
-  const targetPath = lastNonUserSettingsPath.value.trim()
-  if (targetPath && targetPath !== route.fullPath) {
-    void router.push(targetPath).catch(() => undefined)
-    return
-  }
-  void router.push(fallbackPath).catch(() => undefined)
 }
 </script>

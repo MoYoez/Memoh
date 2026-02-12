@@ -395,7 +395,7 @@ provider
         type: 'list',
         name: 'client_type',
         message: 'Client type:',
-        choices: ['openai', 'anthropic', 'google', 'ollama'],
+        choices: ['openai', 'openai-compat', 'anthropic', 'google', 'azure', 'bedrock', 'mistral', 'xai', 'ollama', 'dashscope'],
       })
     }
     if (!opts.base_url) questions.push({ type: 'input', name: 'base_url', message: 'Base URL:' })

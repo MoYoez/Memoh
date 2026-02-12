@@ -357,13 +357,15 @@ func modelInputFromMultimodal(isMultimodal bool) []string {
 func isValidClientType(clientType ClientType) bool {
 	switch clientType {
 	case ClientTypeOpenAI,
+		ClientTypeOpenAICompat,
 		ClientTypeAnthropic,
 		ClientTypeGoogle,
-		ClientTypeBedrock,
-		ClientTypeOllama,
 		ClientTypeAzure,
-		ClientTypeDashscope,
-		ClientTypeOther:
+		ClientTypeBedrock,
+		ClientTypeMistral,
+		ClientTypeXAI,
+		ClientTypeOllama,
+		ClientTypeDashscope:
 		return true
 	default:
 		return false

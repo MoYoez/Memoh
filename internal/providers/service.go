@@ -232,7 +232,9 @@ func (s *Service) toGetResponse(provider sqlc.LlmProvider) GetResponse {
 // isValidClientType checks if a client type is valid
 func isValidClientType(clientType ClientType) bool {
 	switch clientType {
-	case ClientTypeOpenAI, ClientTypeOpenAICompat, ClientTypeAnthropic, ClientTypeGoogle, ClientTypeOllama:
+	case ClientTypeOpenAI, ClientTypeOpenAICompat, ClientTypeAnthropic, ClientTypeGoogle,
+		ClientTypeAzure, ClientTypeBedrock, ClientTypeMistral, ClientTypeXAI,
+		ClientTypeOllama, ClientTypeDashscope:
 		return true
 	default:
 		return false

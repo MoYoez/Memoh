@@ -19,7 +19,7 @@ import (
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
 
-func setupBindIntegrationTest(t *testing.T) (*sqlc.Queries, *identities.Service, *bind.Service, func()) {
+func setupBindConsumeIntegrationTest(t *testing.T) (*sqlc.Queries, *identities.Service, *bind.Service, func()) {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
@@ -77,8 +77,8 @@ func createBotForBind(ctx context.Context, queries *sqlc.Queries, ownerUserID st
 	return row.ID.String(), nil
 }
 
-func TestIntegrationConsumeBindCodeSuccessAndSingleUse(t *testing.T) {
-	queries, channelIdentitySvc, bindSvc, cleanup := setupBindIntegrationTest(t)
+func TestBindConsumeLinksChannelIdentityToIssuerUser(t *testing.T) {
+	queries, channelIdentitySvc, bindSvc, cleanup := setupBindConsumeIntegrationTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -86,91 +86,7 @@ func TestIntegrationConsumeBindCodeSuccessAndSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create owner user failed: %v", err)
 	}
-	sourceChannelIdentity, err := channelIdentitySvc.Create(ctx, "feishu", fmt.Sprintf("bind-success-%d", time.Now().UnixNano()), "source")
-	if err != nil {
-		t.Fatalf("create source channel identity failed: %v", err)
-	}
-
-	code, err := bindSvc.Issue(ctx, ownerUserID, "feishu", 10*time.Minute)
-	if err != nil {
-		t.Fatalf("issue bind code failed: %v", err)
-	}
-	if err := bindSvc.Consume(ctx, code, sourceChannelIdentity.ID); err != nil {
-		t.Fatalf("consume bind code failed: %v", err)
-	}
-
-	after, err := bindSvc.Get(ctx, code.Token)
-	if err != nil {
-		t.Fatalf("get bind code failed: %v", err)
-	}
-	if after.UsedAt.IsZero() {
-		t.Fatal("expected used_at to be set after consume")
-	}
-	if after.UsedByChannelIdentityID != sourceChannelIdentity.ID {
-		t.Fatalf("expected used_by_channel_identity_id=%s, got %s", sourceChannelIdentity.ID, after.UsedByChannelIdentityID)
-	}
-
-	linkedUserID, err := channelIdentitySvc.GetLinkedUserID(ctx, sourceChannelIdentity.ID)
-	if err != nil {
-		t.Fatalf("get linked user failed: %v", err)
-	}
-	if linkedUserID != ownerUserID {
-		t.Fatalf("expected linked user=%s, got %s", ownerUserID, linkedUserID)
-	}
-
-	if err := bindSvc.Consume(ctx, code, sourceChannelIdentity.ID); !errors.Is(err, bind.ErrCodeUsed) {
-		t.Fatalf("expected ErrCodeUsed on second consume, got %v", err)
-	}
-}
-
-func TestIntegrationConsumeBindCodeRollbackOnLinkConflict(t *testing.T) {
-	queries, channelIdentitySvc, bindSvc, cleanup := setupBindIntegrationTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	ownerUserID, err := createUserForBind(ctx, queries)
-	if err != nil {
-		t.Fatalf("create owner user failed: %v", err)
-	}
-	otherUserID, err := createUserForBind(ctx, queries)
-	if err != nil {
-		t.Fatalf("create other user failed: %v", err)
-	}
-	sourceChannelIdentity, err := channelIdentitySvc.Create(ctx, "feishu", fmt.Sprintf("bind-rollback-%d", time.Now().UnixNano()), "source")
-	if err != nil {
-		t.Fatalf("create source channel identity failed: %v", err)
-	}
-	if err := channelIdentitySvc.LinkChannelIdentityToUser(ctx, sourceChannelIdentity.ID, otherUserID); err != nil {
-		t.Fatalf("pre-link source channel identity failed: %v", err)
-	}
-
-	code, err := bindSvc.Issue(ctx, ownerUserID, "feishu", 10*time.Minute)
-	if err != nil {
-		t.Fatalf("issue bind code failed: %v", err)
-	}
-	if err := bindSvc.Consume(ctx, code, sourceChannelIdentity.ID); !errors.Is(err, bind.ErrLinkConflict) {
-		t.Fatalf("expected ErrLinkConflict, got %v", err)
-	}
-
-	after, err := bindSvc.Get(ctx, code.Token)
-	if err != nil {
-		t.Fatalf("get bind code failed: %v", err)
-	}
-	if !after.UsedAt.IsZero() {
-		t.Fatal("expected used_at to remain empty when consume fails")
-	}
-}
-
-func TestIntegrationConsumeLinksChannelIdentityToIssuerUser(t *testing.T) {
-	queries, channelIdentitySvc, bindSvc, cleanup := setupBindIntegrationTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	ownerUserID, err := createUserForBind(ctx, queries)
-	if err != nil {
-		t.Fatalf("create owner user failed: %v", err)
-	}
-	sourceChannelIdentity, err := channelIdentitySvc.ResolveByChannelIdentity(ctx, "feishu", fmt.Sprintf("bind-src-%d", time.Now().UnixNano()), "source")
+	sourceChannelIdentity, err := channelIdentitySvc.ResolveByChannelIdentity(ctx, "feishu", fmt.Sprintf("bind-src-%d", time.Now().UnixNano()), "source", nil)
 	if err != nil {
 		t.Fatalf("create source channelIdentity failed: %v", err)
 	}
@@ -202,8 +118,8 @@ func TestIntegrationConsumeLinksChannelIdentityToIssuerUser(t *testing.T) {
 	}
 }
 
-func TestIntegrationConsumeConflictDoesNotMarkUsed(t *testing.T) {
-	queries, channelIdentitySvc, bindSvc, cleanup := setupBindIntegrationTest(t)
+func TestBindConsumeConflictDoesNotMarkUsed(t *testing.T) {
+	queries, channelIdentitySvc, bindSvc, cleanup := setupBindConsumeIntegrationTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -215,7 +131,7 @@ func TestIntegrationConsumeConflictDoesNotMarkUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create other user failed: %v", err)
 	}
-	sourceChannelIdentity, err := channelIdentitySvc.ResolveByChannelIdentity(ctx, "feishu", fmt.Sprintf("bind-conflict-%d", time.Now().UnixNano()), "source")
+	sourceChannelIdentity, err := channelIdentitySvc.ResolveByChannelIdentity(ctx, "feishu", fmt.Sprintf("bind-conflict-%d", time.Now().UnixNano()), "source", nil)
 	if err != nil {
 		t.Fatalf("create source channelIdentity failed: %v", err)
 	}

@@ -474,6 +474,7 @@ export type HandlersSkillsOpResponse = {
 };
 
 export type IdentitiesChannelIdentity = {
+    avatar_url?: string;
     channel?: string;
     channel_subject_id?: string;
     created_at?: string;
@@ -540,7 +541,7 @@ export type ModelsUpdateRequest = {
     type?: ModelsModelType;
 };
 
-export type ProvidersClientType = 'openai' | 'openai-compat' | 'anthropic' | 'google' | 'ollama';
+export type ProvidersClientType = 'openai' | 'openai-compat' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'mistral' | 'xai' | 'ollama' | 'dashscope';
 
 export type ProvidersCountResponse = {
     count?: number;
@@ -2827,7 +2828,7 @@ export type GetModelsData = {
          */
         type?: string;
         /**
-         * Client type (openai, anthropic, google)
+         * Client type (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)
          */
         client_type?: string;
     };
@@ -3193,7 +3194,7 @@ export type GetProvidersData = {
     path?: never;
     query?: {
         /**
-         * Client type filter (openai, anthropic, google, ollama)
+         * Client type filter (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)
          */
         client_type?: string;
     };
@@ -3259,7 +3260,7 @@ export type GetProvidersCountData = {
     path?: never;
     query?: {
         /**
-         * Client type filter (openai, anthropic, google, ollama)
+         * Client type filter (openai, openai-compat, anthropic, google, azure, bedrock, mistral, xai, ollama, dashscope)
          */
         client_type?: string;
     };

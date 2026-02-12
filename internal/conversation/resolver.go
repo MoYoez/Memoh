@@ -1081,13 +1081,11 @@ func (r *Resolver) loadBotSettings(ctx context.Context, botID string) (settings.
 // --- utility ---
 
 func normalizeClientType(clientType string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(clientType)) {
-	case "openai", "openai-compat":
-		return "openai", nil
-	case "anthropic":
-		return "anthropic", nil
-	case "google":
-		return "google", nil
+	ct := strings.ToLower(strings.TrimSpace(clientType))
+	switch ct {
+	case "openai", "openai-compat", "anthropic", "google",
+		"azure", "bedrock", "mistral", "xai", "ollama", "dashscope":
+		return ct, nil
 	default:
 		return "", fmt.Errorf("unsupported agent gateway client type: %s", clientType)
 	}
