@@ -168,7 +168,7 @@
     "cwdPlaceholder": "Enter working directory path",
     "env": "Environment",
     "envPlaceholder": "Format: KEY:VALUE",
-    "active": "Enable Now",
+    "active": "Enabled",
     "types": {
       "stdio": "Stdio (Local)",
       "remote": "Remote (HTTP/SSE)"

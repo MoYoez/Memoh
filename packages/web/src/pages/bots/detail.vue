@@ -191,20 +191,32 @@
               >
                 <div class="flex items-center justify-between gap-2">
                   <p class="font-mono text-xs">{{ checkKeyLabel(item.check_key) }}</p>
+                  <div v-if="isCheckLoading(item)">
+                    <Spinner class="size-3.5" />
+                  </div>
                   <Badge
+                    v-else
                     :variant="checkStatusVariant(item.status)"
                     class="text-[10px]"
                   >
                     {{ checkStatusLabel(item.status) }}
                   </Badge>
                 </div>
-                <p class="mt-2 text-sm">{{ item.summary }}</p>
                 <p
-                  v-if="item.detail"
-                  class="mt-1 text-xs text-muted-foreground break-all"
+                  v-if="isCheckLoading(item)"
+                  class="mt-2 text-sm text-muted-foreground"
                 >
-                  {{ item.detail }}
+                  {{ $t('common.loading') }}
                 </p>
+                <template v-else>
+                  <p class="mt-2 text-sm">{{ item.summary }}</p>
+                  <p
+                    v-if="item.detail"
+                    class="mt-1 text-xs text-muted-foreground break-all"
+                  >
+                    {{ item.detail }}
+                  </p>
+                </template>
               </li>
             </ul>
           </div>
@@ -452,7 +464,10 @@
         value="settings"
         class="mt-6"
       >
-        <BotSettings :bot-id="botId" />
+        <BotSettings
+          :bot-id="botId"
+          :bot-type="bot?.type"
+        />
       </TabsContent>
     </Tabs>
 
@@ -538,11 +553,11 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
 import {
   getBotsById, putBotsById,
-  getBotsByIdChecks,
   getBotsByBotIdContainer, postBotsByBotIdContainer, deleteBotsByBotIdContainer,
   postBotsByBotIdContainerStart, postBotsByBotIdContainerStop,
   getBotsByBotIdContainerSnapshots, postBotsByBotIdContainerSnapshots,
 } from '@memoh/sdk'
+import { client } from '@memoh/sdk/client'
 import type {
   BotsBotCheck, HandlersGetContainerResponse,
   HandlersListSnapshotsResponse,
@@ -581,9 +596,20 @@ const { mutateAsync: updateBot, isLoading: updateBotLoading } = useMutation({
   },
 })
 
-async function fetchBotChecks(id: string): Promise<BotCheck[]> {
-  const { data } = await getBotsByIdChecks({ path: { id }, throwOnError: true })
-  return data.items ?? []
+async function fetchCheckKeys(id: string): Promise<string[]> {
+  const { data } = await client.get({
+    url: `/bots/${id}/checks/keys`,
+    throwOnError: true,
+  }) as { data: { keys: string[] } }
+  return data.keys ?? []
+}
+
+async function fetchSingleCheck(id: string, key: string): Promise<BotCheck> {
+  const { data } = await client.get({
+    url: `/bots/${id}/checks/run/${key}`,
+    throwOnError: true,
+  }) as { data: BotCheck }
+  return data
 }
 
 // Replace breadcrumb bot id with display name when available.
@@ -830,6 +856,10 @@ function checkStatusLabel(status: BotCheck['status']): string {
   return t('bots.checks.status.ok')
 }
 
+function isCheckLoading(item: BotCheck): boolean {
+  return item.status === 'unknown' && !item.summary
+}
+
 function checkKeyLabel(checkKey: string): string {
   const key = checkKeyI18nKeys[checkKey]
   if (!key) {
@@ -840,10 +870,43 @@ function checkKeyLabel(checkKey: string): string {
 
 async function loadChecks(showToast: boolean) {
   checksLoading.value = true
+  checks.value = []
   try {
-    checks.value = await fetchBotChecks(botId.value)
+    const keys = await fetchCheckKeys(botId.value)
+    if (keys.length === 0) return
+
+    // Maintain key order: pre-fill placeholders, replace as results arrive.
+    const keyOrder = new Map(keys.map((k, i) => [k, i]))
+    checks.value = keys.map((key) => ({
+      check_key: key,
+      status: 'unknown' as BotCheck['status'],
+      summary: '',
+    }))
+
+    const pending = keys.map(async (key) => {
+      try {
+        const result = await fetchSingleCheck(botId.value, key)
+        const idx = keyOrder.get(key)
+        if (idx !== undefined) {
+          const updated = [...checks.value]
+          updated[idx] = result
+          checks.value = updated
+        }
+      } catch {
+        const idx = keyOrder.get(key)
+        if (idx !== undefined) {
+          const updated = [...checks.value]
+          updated[idx] = {
+            check_key: key,
+            status: 'error' as BotCheck['status'],
+            summary: 'Check failed',
+          }
+          checks.value = updated
+        }
+      }
+    })
+    await Promise.all(pending)
   } catch (error) {
-    checks.value = []
     if (showToast) {
       toast.error(resolveErrorMessage(error, t('bots.checks.loadFailed')))
     }

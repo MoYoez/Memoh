@@ -57,16 +57,17 @@
       />
     </div>
 
-    <!-- Allow Guest -->
-    <div class="flex items-center justify-between">
-      <Label>{{ $t('bots.settings.allowGuest') }}</Label>
-      <Switch
-        :model-value="form.allow_guest"
-        @update:model-value="(val) => form.allow_guest = !!val"
-      />
-    </div>
-
-    <Separator />
+    <!-- Allow Guest: only for public bot -->
+    <template v-if="isPublicBot">
+      <div class="flex items-center justify-between">
+        <Label>{{ $t('bots.settings.allowGuest') }}</Label>
+        <Switch
+          :model-value="form.allow_guest"
+          @update:model-value="(val) => form.allow_guest = !!val"
+        />
+      </div>
+      <Separator />
+    </template>
 
     <!-- Save -->
     <div class="flex justify-end">
@@ -135,7 +136,10 @@ import type { Ref } from 'vue'
 
 const props = defineProps<{
   botId: string
+  botType?: string
 }>()
+
+const isPublicBot = computed(() => props.botType === 'public')
 
 const { t } = useI18n()
 const router = useRouter()
@@ -220,14 +224,16 @@ watch(settings, (val) => {
 const hasChanges = computed(() => {
   if (!settings.value) return true
   const s = settings.value
-  return (
+  let changed =
     form.chat_model_id !== (s.chat_model_id ?? '')
     || form.memory_model_id !== (s.memory_model_id ?? '')
     || form.embedding_model_id !== (s.embedding_model_id ?? '')
     || form.max_context_load_time !== (s.max_context_load_time ?? 0)
     || form.language !== (s.language ?? '')
-    || form.allow_guest !== (s.allow_guest ?? false)
-  )
+  if (isPublicBot.value) {
+    changed = changed || form.allow_guest !== (s.allow_guest ?? false)
+  }
+  return changed
 })
 
 async function handleSave() {

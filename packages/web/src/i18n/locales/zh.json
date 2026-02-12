@@ -168,7 +168,7 @@
     "cwdPlaceholder": "输入工作目录路径",
     "env": "环境变量",
     "envPlaceholder": "格式：KEY:VALUE",
-    "active": "立即启用",
+    "active": "启用",
     "types": {
       "stdio": "本地命令 (Stdio)",
       "remote": "远程服务 (HTTP/SSE)"
