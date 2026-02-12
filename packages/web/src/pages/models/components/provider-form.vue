@@ -3,7 +3,7 @@
     <div class="**:[input]:mt-3 **:[input]:mb-4">
       <section>
         <h4 class="scroll-m-20 font-semibold tracking-tight">
-          {{ $t('provider.name') }}
+          {{ $t('common.name') }}
         </h4>
         <FormField
           v-slot="{ componentField }"
@@ -13,7 +13,7 @@
             <FormControl>
               <Input
                 type="text"
-                :placeholder="$t('provider.namePlaceholder')"
+                :placeholder="$t('common.namePlaceholder')"
                 v-bind="componentField"
               />
             </FormControl>

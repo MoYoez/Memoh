@@ -45,7 +45,7 @@
             class="text-muted-foreground/60"
           >·</span>
           <span v-if="formattedDate">
-            {{ $t('bots.createdAt') }} {{ formattedDate }}
+            {{ $t('common.createdAt') }} {{ formattedDate }}
           </span>
         </div>
       </div>

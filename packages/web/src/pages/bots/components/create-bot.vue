@@ -65,7 +65,7 @@
           >
             <FormItem>
               <Label class="mb-2">
-                {{ $t('bots.type') }}
+                {{ $t('common.type') }}
               </Label>
               <FormControl>
                 <Select v-bind="componentField">

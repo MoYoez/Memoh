@@ -15,7 +15,25 @@
     "import": "导入",
     "export": "导出",
     "copy": "复制",
-    "copied": "已复制到剪贴板"
+    "copied": "已复制到剪贴板",
+    "tabAddSingle": "添加单个",
+    "tabImportJson": "导入 JSON",
+    "copyAsJson": "复制为 JSON",
+    "fillForm": "填入表单",
+    "batchSelected": "已选 {count} 项",
+    "batchDelete": "批量删除",
+    "batchDeleteConfirm": "确定删除选中的 {count} 项？",
+    "batchExport": "批量导出",
+    "cancelSelection": "取消选择",
+    "name": "名称",
+    "namePlaceholder": "输入名称",
+    "type": "类型",
+    "typePlaceholder": "选择类型",
+    "refresh": "刷新",
+    "status": "状态",
+    "loadFailed": "加载失败",
+    "saveFailed": "保存失败",
+    "createdAt": "创建时间"
   },
   "auth": {
     "welcome": "欢迎回来",
@@ -119,8 +137,6 @@
     "deleteModelConfirm": "确定要删除这个模型吗？",
     "emptyTitle": "暂无模型",
     "emptyDescription": "点击上方按钮为当前服务商添加模型",
-    "type": "类型",
-    "typePlaceholder": "选择模型类型",
     "model": "模型 ID",
     "modelPlaceholder": "例如 gpt-4o",
     "displayName": "显示名称",
@@ -132,14 +148,10 @@
   "provider": {
     "add": "添加服务商",
     "addBtn": "添加",
-    "name": "名称",
-    "namePlaceholder": "输入服务商名称",
     "apiKey": "API 密钥",
     "apiKeyPlaceholder": "输入 API 密钥",
     "url": "接口地址",
     "urlPlaceholder": "输入接口地址",
-    "type": "类型",
-    "typePlaceholder": "选择类型",
     "deleteConfirm": "确定要删除这个服务商吗？",
     "saveChanges": "保存修改",
     "emptyTitle": "暂无服务商",
@@ -148,10 +160,6 @@
   "mcp": {
     "addTitle": "添加 MCP",
     "addDescription": "配置 MCP 服务器连接",
-    "name": "名称",
-    "namePlaceholder": "输入名称",
-    "type": "类型",
-    "typePlaceholder": "选择类型",
     "command": "命令",
     "commandPlaceholder": "输入启动命令",
     "arguments": "参数",
@@ -162,11 +170,10 @@
     "envPlaceholder": "格式：KEY:VALUE",
     "active": "立即启用",
     "types": {
-      "stdio": "Stdio"
+      "stdio": "本地命令 (Stdio)",
+      "remote": "远程服务 (HTTP/SSE)"
     },
     "table": {
-      "name": "名称",
-      "type": "类型",
       "command": "命令",
       "cwd": "工作目录",
       "arguments": "参数",
@@ -207,7 +214,6 @@
     "editAvatarDescription": "设置 Bot 头像图片的链接地址",
     "avatarUpdateSuccess": "头像已更新",
     "avatarUpdateFailed": "更新头像失败",
-    "type": "类型",
     "typePlaceholder": "选择 Bot 类型",
     "types": {
       "personal": "个人",
@@ -229,9 +235,7 @@
       "issueCount": "{count} 个异常",
       "empty": "暂无检查项",
       "loadFailed": "加载运行时检查失败",
-      "actions": {
-        "refresh": "刷新"
-      },
+      "actions": {},
       "keys": {
         "containerInit": "容器初始化",
         "containerRecord": "容器记录",
@@ -246,7 +250,6 @@
         "unknown": "未知"
       }
     },
-    "createdAt": "创建于",
     "tabs": {
       "overview": "概览",
       "memory": "记忆",
@@ -299,7 +302,6 @@
         "createdAt": "创建时间"
       },
       "actions": {
-        "refresh": "刷新",
         "create": "创建容器",
         "start": "启动",
         "stop": "停止",
@@ -334,10 +336,9 @@
       "credentials": "凭据配置",
       "saveSuccess": "平台配置已保存",
       "saveFailed": "平台配置保存失败",
-      "requiredField": "{field} 为必填项",
-      "save": "保存平台配置",
-      "status": "状态",
-      "statusActive": "启用",
+    "requiredField": "{field} 为必填项",
+    "save": "保存平台配置",
+    "statusActive": "启用",
       "statusInactive": "停用",
       "deleteConfirm": "确定要移除这个平台吗？",
       "noAvailableTypes": "所有平台类型均已配置",

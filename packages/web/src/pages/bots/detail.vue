@@ -153,7 +153,7 @@
                   v-if="checksLoading"
                   class="mr-1.5"
                 />
-                {{ $t('bots.checks.actions.refresh') }}
+                {{ $t('common.refresh') }}
               </Button>
             </div>
             <div class="mt-3 flex items-center gap-2 text-sm">
@@ -247,7 +247,7 @@
                   v-if="containerLoading || containerAction === 'refresh'"
                   class="mr-1.5"
                 />
-                {{ $t('bots.container.actions.refresh') }}
+                {{ $t('common.refresh') }}
               </Button>
               <Button
                 v-if="containerMissing"

@@ -24,12 +24,12 @@
             >
               <FormItem>
                 <Label class="mb-2">
-                  {{ $t('models.type') }}
+                  {{ $t('common.type') }}
                 </Label>
                 <FormControl>
                   <Select v-bind="componentField">
                     <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="$t('models.typePlaceholder')" />
+                      <SelectValue :placeholder="$t('common.typePlaceholder')" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>

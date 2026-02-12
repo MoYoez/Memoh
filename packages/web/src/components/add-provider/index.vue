@@ -28,12 +28,12 @@
             >
               <FormItem>
                 <Label class="mb-2">
-                  {{ $t('provider.name') }}
+                  {{ $t('common.name') }}
                 </Label>
                 <FormControl>
                   <Input
                     type="text"
-                    :placeholder="$t('provider.namePlaceholder')"
+                    :placeholder="$t('common.namePlaceholder')"
                     v-bind="componentField"
                   />
                 </FormControl>
@@ -79,12 +79,12 @@
             >
               <FormItem>
                 <Label class="mb-2">
-                  {{ $t('provider.type') }}
+                  {{ $t('common.type') }}
                 </Label>
                 <FormControl>
                   <Select v-bind="componentField">
                     <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="$t('provider.typePlaceholder')" />
+                      <SelectValue :placeholder="$t('common.typePlaceholder')" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>

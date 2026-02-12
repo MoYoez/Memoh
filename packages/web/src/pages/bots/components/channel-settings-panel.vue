@@ -113,7 +113,7 @@
 
     <!-- Status -->
     <div class="flex items-center justify-between">
-      <Label>{{ $t('bots.channels.status') }}</Label>
+      <Label>{{ $t('common.status') }}</Label>
       <Switch
         :model-value="form.status === 'active'"
         @update:model-value="(val) => form.status = val ? 'active' : 'inactive'"
