@@ -211,7 +211,9 @@ func (s *Service) CountByClientType(ctx context.Context, clientType ClientType) 
 func (s *Service) toGetResponse(provider sqlc.LlmProvider) GetResponse {
 	var metadata map[string]any
 	if len(provider.Metadata) > 0 {
-		_ = json.Unmarshal(provider.Metadata, &metadata)
+		if err := json.Unmarshal(provider.Metadata, &metadata); err != nil {
+			slog.Warn("provider metadata unmarshal failed", slog.String("id", provider.ID.String()), slog.Any("error", err))
+		}
 	}
 
 	// Mask API key (show only first 8 characters)

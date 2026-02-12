@@ -19,7 +19,7 @@ type Connection struct {
 	Name      string         `json:"name"`
 	Type      string         `json:"type"`
 	Config    map[string]any `json:"config"`
-	Active    bool           `json:"active"`
+	Active    bool           `json:"is_active"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 }
@@ -29,7 +29,7 @@ type UpsertRequest struct {
 	Name   string         `json:"name"`
 	Type   string         `json:"type,omitempty"`
 	Config map[string]any `json:"config"`
-	Active *bool          `json:"active,omitempty"`
+	Active *bool          `json:"is_active,omitempty"`
 }
 
 // ListResponse wraps MCP connection list responses.

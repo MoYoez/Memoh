@@ -75,7 +75,7 @@ type GetRequest struct {
 }
 
 type GetResponse struct {
-	ModelId string `json:"model_id"`
+	ModelID string `json:"model_id"`
 	Model
 }
 

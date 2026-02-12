@@ -225,24 +225,19 @@ type Subagent struct {
 }
 
 type User struct {
-	ID                 pgtype.UUID        `json:"id"`
-	Username           pgtype.Text        `json:"username"`
-	Email              pgtype.Text        `json:"email"`
-	PasswordHash       pgtype.Text        `json:"password_hash"`
-	Role               string             `json:"role"`
-	DisplayName        pgtype.Text        `json:"display_name"`
-	AvatarUrl          pgtype.Text        `json:"avatar_url"`
-	DataRoot           pgtype.Text        `json:"data_root"`
-	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
-	ChatModelID        pgtype.Text        `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text        `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text        `json:"embedding_model_id"`
-	MaxContextLoadTime int32              `json:"max_context_load_time"`
-	Language           string             `json:"language"`
-	IsActive           bool               `json:"is_active"`
-	Metadata           []byte             `json:"metadata"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+	Username     pgtype.Text        `json:"username"`
+	Email        pgtype.Text        `json:"email"`
+	PasswordHash pgtype.Text        `json:"password_hash"`
+	Role         string             `json:"role"`
+	DisplayName  pgtype.Text        `json:"display_name"`
+	AvatarUrl    pgtype.Text        `json:"avatar_url"`
+	DataRoot     pgtype.Text        `json:"data_root"`
+	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
+	IsActive     bool               `json:"is_active"`
+	Metadata     []byte             `json:"metadata"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type UserChannelBinding struct {

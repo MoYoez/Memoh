@@ -40,24 +40,24 @@ func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 }
 
 // Create creates a new conversation and adds the creator as owner.
-func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, req CreateRequest) (Chat, error) {
+func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, req CreateRequest) (Conversation, error) {
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
 		kind = KindDirect
 	}
 	if kind != KindDirect && kind != KindGroup && kind != KindThread {
-		return Chat{}, fmt.Errorf("invalid conversation kind: %s", kind)
+		return Conversation{}, fmt.Errorf("invalid conversation kind: %s", kind)
 	}
 
 	pgBotID, err := parseUUID(botID)
 	if err != nil {
-		return Chat{}, fmt.Errorf("invalid bot id: %w", err)
+		return Conversation{}, fmt.Errorf("invalid bot id: %w", err)
 	}
 	pgChannelIdentityID := pgtype.UUID{}
 	if strings.TrimSpace(channelIdentityID) != "" {
 		pgChannelIdentityID, err = parseUUID(channelIdentityID)
 		if err != nil {
-			return Chat{}, fmt.Errorf("invalid channel identity id: %w", err)
+			return Conversation{}, fmt.Errorf("invalid channel identity id: %w", err)
 		}
 	}
 
@@ -65,13 +65,13 @@ func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, r
 	if kind == KindThread && strings.TrimSpace(req.ParentChatID) != "" {
 		pgParent, err = parseUUID(req.ParentChatID)
 		if err != nil {
-			return Chat{}, fmt.Errorf("invalid parent conversation id: %w", err)
+			return Conversation{}, fmt.Errorf("invalid parent conversation id: %w", err)
 		}
 	}
 
 	metadata, err := json.Marshal(nonNilMap(req.Metadata))
 	if err != nil {
-		return Chat{}, fmt.Errorf("marshal conversation metadata: %w", err)
+		return Conversation{}, fmt.Errorf("marshal conversation metadata: %w", err)
 	}
 
 	row, err := s.queries.CreateChat(ctx, sqlc.CreateChatParams{
@@ -83,7 +83,7 @@ func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, r
 		Metadata:        metadata,
 	})
 	if err != nil {
-		return Chat{}, fmt.Errorf("create conversation: %w", err)
+		return Conversation{}, fmt.Errorf("create conversation: %w", err)
 	}
 
 	// Add creator as owner when the channel identity is available.
@@ -93,7 +93,7 @@ func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, r
 			UserID: pgChannelIdentityID,
 			Role:   RoleOwner,
 		}); err != nil {
-			return Chat{}, fmt.Errorf("add owner participant: %w", err)
+			return Conversation{}, fmt.Errorf("add owner participant: %w", err)
 		}
 	}
 
@@ -102,7 +102,7 @@ func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, r
 		if err := s.queries.CopyParticipantsToChat(ctx, sqlc.CopyParticipantsToChatParams{
 			ChatID:  pgParent,
 			ChatID2: row.ID,
-		}); err != nil && s.logger != nil {
+		}); err != nil {
 			s.logger.Warn("copy parent participants failed", slog.Any("error", err))
 		}
 	}
@@ -111,30 +111,30 @@ func (s *Service) Create(ctx context.Context, botID, channelIdentityID string, r
 }
 
 // Get returns a conversation by ID.
-func (s *Service) Get(ctx context.Context, conversationID string) (Chat, error) {
+func (s *Service) Get(ctx context.Context, conversationID string) (Conversation, error) {
 	pgID, err := parseUUID(conversationID)
 	if err != nil {
-		return Chat{}, ErrChatNotFound
+		return Conversation{}, ErrChatNotFound
 	}
 	row, err := s.queries.GetChatByID(ctx, pgID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Chat{}, ErrChatNotFound
+			return Conversation{}, ErrChatNotFound
 		}
-		return Chat{}, err
+		return Conversation{}, err
 	}
 	return toChatFromGet(row), nil
 }
 
 // GetReadAccess resolves whether a user can read a conversation.
-func (s *Service) GetReadAccess(ctx context.Context, conversationID, channelIdentityID string) (ChatReadAccess, error) {
+func (s *Service) GetReadAccess(ctx context.Context, conversationID, channelIdentityID string) (ConversationReadAccess, error) {
 	pgConversationID, err := parseUUID(conversationID)
 	if err != nil {
-		return ChatReadAccess{}, ErrPermissionDenied
+		return ConversationReadAccess{}, ErrPermissionDenied
 	}
 	pgChannelIdentityID, err := parseUUID(channelIdentityID)
 	if err != nil {
-		return ChatReadAccess{}, ErrPermissionDenied
+		return ConversationReadAccess{}, ErrPermissionDenied
 	}
 	row, err := s.queries.GetChatReadAccessByUser(ctx, sqlc.GetChatReadAccessByUserParams{
 		ChatID: pgConversationID,
@@ -142,11 +142,11 @@ func (s *Service) GetReadAccess(ctx context.Context, conversationID, channelIden
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ChatReadAccess{}, ErrPermissionDenied
+			return ConversationReadAccess{}, ErrPermissionDenied
 		}
-		return ChatReadAccess{}, err
+		return ConversationReadAccess{}, err
 	}
-	return ChatReadAccess{
+	return ConversationReadAccess{
 		AccessMode:      row.AccessMode,
 		ParticipantRole: strings.TrimSpace(row.ParticipantRole),
 		LastObservedAt:  pgTimePtr(row.LastObservedAt),
@@ -154,7 +154,7 @@ func (s *Service) GetReadAccess(ctx context.Context, conversationID, channelIden
 }
 
 // ListByBotAndChannelIdentity returns all visible conversations for a bot and channel identity.
-func (s *Service) ListByBotAndChannelIdentity(ctx context.Context, botID, channelIdentityID string) ([]ChatListItem, error) {
+func (s *Service) ListByBotAndChannelIdentity(ctx context.Context, botID, channelIdentityID string) ([]ConversationListItem, error) {
 	pgBotID, err := parseUUID(botID)
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (s *Service) ListByBotAndChannelIdentity(ctx context.Context, botID, channe
 	if err != nil {
 		return nil, err
 	}
-	conversations := make([]ChatListItem, 0, len(rows))
+	conversations := make([]ConversationListItem, 0, len(rows))
 	for _, row := range rows {
 		conversations = append(conversations, toChatListItem(row))
 	}
@@ -178,7 +178,7 @@ func (s *Service) ListByBotAndChannelIdentity(ctx context.Context, botID, channe
 }
 
 // ListThreads returns threads for a parent conversation.
-func (s *Service) ListThreads(ctx context.Context, parentConversationID string) ([]Chat, error) {
+func (s *Service) ListThreads(ctx context.Context, parentConversationID string) ([]Conversation, error) {
 	pgID, err := parseUUID(parentConversationID)
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func (s *Service) ListThreads(ctx context.Context, parentConversationID string) 
 	if err != nil {
 		return nil, err
 	}
-	conversations := make([]Chat, 0, len(rows))
+	conversations := make([]Conversation, 0, len(rows))
 	for _, row := range rows {
 		conversations = append(conversations, toChatFromThread(row))
 	}
@@ -296,7 +296,7 @@ func (s *Service) RemoveParticipant(ctx context.Context, conversationID, channel
 func (s *Service) GetSettings(ctx context.Context, conversationID string) (Settings, error) {
 	pgID, err := parseUUID(conversationID)
 	if err != nil {
-		return defaultSettings(conversationID), nil
+		return Settings{}, fmt.Errorf("invalid conversation id: %w", err)
 	}
 	row, err := s.queries.GetChatSettings(ctx, pgID)
 	if err != nil {
@@ -332,7 +332,7 @@ func (s *Service) UpdateSettings(ctx context.Context, conversationID string, req
 	return toSettingsFromUpsert(row), nil
 }
 
-func toChatFromCreate(row sqlc.CreateChatRow) Chat {
+func toChatFromCreate(row sqlc.CreateChatRow) Conversation {
 	return toChatFields(
 		row.ID,
 		row.BotID,
@@ -346,7 +346,7 @@ func toChatFromCreate(row sqlc.CreateChatRow) Chat {
 	)
 }
 
-func toChatFromGet(row sqlc.GetChatByIDRow) Chat {
+func toChatFromGet(row sqlc.GetChatByIDRow) Conversation {
 	return toChatFields(
 		row.ID,
 		row.BotID,
@@ -360,7 +360,7 @@ func toChatFromGet(row sqlc.GetChatByIDRow) Chat {
 	)
 }
 
-func toChatFromThread(row sqlc.ListThreadsByParentRow) Chat {
+func toChatFromThread(row sqlc.ListThreadsByParentRow) Conversation {
 	return toChatFields(
 		row.ID,
 		row.BotID,
@@ -374,8 +374,8 @@ func toChatFromThread(row sqlc.ListThreadsByParentRow) Chat {
 	)
 }
 
-func toChatFields(id, botID pgtype.UUID, kind string, parentChatID pgtype.UUID, title pgtype.Text, createdBy pgtype.UUID, metadata []byte, createdAt, updatedAt pgtype.Timestamptz) Chat {
-	return Chat{
+func toChatFields(id, botID pgtype.UUID, kind string, parentChatID pgtype.UUID, title pgtype.Text, createdBy pgtype.UUID, metadata []byte, createdAt, updatedAt pgtype.Timestamptz) Conversation {
+	return Conversation{
 		ID:           id.String(),
 		BotID:        botID.String(),
 		Kind:         kind,
@@ -388,8 +388,8 @@ func toChatFields(id, botID pgtype.UUID, kind string, parentChatID pgtype.UUID, 
 	}
 }
 
-func toChatListItem(row sqlc.ListVisibleChatsByBotAndUserRow) ChatListItem {
-	return ChatListItem{
+func toChatListItem(row sqlc.ListVisibleChatsByBotAndUserRow) ConversationListItem {
+	return ConversationListItem{
 		ID:              row.ID.String(),
 		BotID:           row.BotID.String(),
 		Kind:            row.Kind,
@@ -478,6 +478,8 @@ func parseJSONMap(data []byte) map[string]any {
 		return nil
 	}
 	var m map[string]any
-	_ = json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		slog.Warn("parseJSONMap: unmarshal failed", slog.Any("error", err))
+	}
 	return m
 }

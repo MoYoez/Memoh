@@ -1,4 +1,4 @@
-package router
+package inbound
 
 import (
 	"context"
@@ -567,24 +567,4 @@ func (r *IdentityResolver) tryLinkConfiglessChannelIdentityToUser(ctx context.Co
 		return ""
 	}
 	return candidateUserID
-}
-
-func buildSessionMetadata(msg channel.InboundMessage) map[string]any {
-	metadata := map[string]any{}
-	if strings.TrimSpace(msg.Source) != "" {
-		metadata["source"] = strings.TrimSpace(msg.Source)
-	}
-	if strings.TrimSpace(msg.Message.ID) != "" {
-		metadata["message_id"] = strings.TrimSpace(msg.Message.ID)
-	}
-	if strings.TrimSpace(msg.Conversation.Type) != "" {
-		metadata["conversation_type"] = strings.TrimSpace(msg.Conversation.Type)
-	}
-	if strings.TrimSpace(msg.Conversation.Name) != "" {
-		metadata["conversation_name"] = strings.TrimSpace(msg.Conversation.Name)
-	}
-	if !msg.ReceivedAt.IsZero() {
-		metadata["received_at"] = msg.ReceivedAt.UTC().Format(time.RFC3339Nano)
-	}
-	return metadata
 }

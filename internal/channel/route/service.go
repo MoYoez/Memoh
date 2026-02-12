@@ -16,7 +16,7 @@ import (
 
 // ConversationService contains the minimal conversation behavior required by route resolution.
 type ConversationService interface {
-	Create(ctx context.Context, botID, channelIdentityID string, req conversation.CreateRequest) (conversation.Chat, error)
+	Create(ctx context.Context, botID, channelIdentityID string, req conversation.CreateRequest) (conversation.Conversation, error)
 	IsParticipant(ctx context.Context, conversationID, channelIdentityID string) (bool, error)
 	AddParticipant(ctx context.Context, conversationID, channelIdentityID, role string) (conversation.Participant, error)
 }
@@ -250,11 +250,12 @@ func (s *DBService) resolveConversationCreatorChannelIdentityID(ctx context.Cont
 		}
 		return fallback
 	}
-	ownerChannelIdentityID := row.OwnerUserID.String()
-	if strings.TrimSpace(ownerChannelIdentityID) == "" {
+	// NOTE: OwnerUserID is the bot owner's user ID. Used as fallback creator for group conversations.
+	ownerUserID := row.OwnerUserID.String()
+	if strings.TrimSpace(ownerUserID) == "" {
 		return fallback
 	}
-	return ownerChannelIdentityID
+	return ownerUserID
 }
 
 func toRouteFromCreate(row sqlc.CreateChatRouteRow) Route {
@@ -357,6 +358,8 @@ func parseJSONMap(data []byte) map[string]any {
 		return nil
 	}
 	var m map[string]any
-	_ = json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		slog.Warn("parseJSONMap: unmarshal failed", slog.Any("error", err))
+	}
 	return m
 }

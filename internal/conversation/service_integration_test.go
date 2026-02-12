@@ -175,7 +175,7 @@ func TestObservedChatVisibleAfterBindWithoutBackfill(t *testing.T) {
 		t.Fatalf("expected observed chat visible after bind, got %d chats", len(afterBind))
 	}
 
-	var target *conversation.ChatListItem
+	var target *conversation.ConversationListItem
 	for i := range afterBind {
 		if afterBind[i].ID == chatID {
 			target = &afterBind[i]

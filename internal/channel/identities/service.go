@@ -264,7 +264,9 @@ func (s *Service) LinkChannelIdentityToUser(ctx context.Context, channelIdentity
 func toChannelIdentity(row sqlc.ChannelIdentity) ChannelIdentity {
 	var metadata map[string]any
 	if len(row.Metadata) > 0 {
-		_ = json.Unmarshal(row.Metadata, &metadata)
+		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
+			slog.Warn("unmarshal channel identity metadata failed", slog.String("id", row.ID.String()), slog.Any("error", err))
+		}
 	}
 	if metadata == nil {
 		metadata = map[string]any{}

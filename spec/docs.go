@@ -2640,52 +2640,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/models/enable": {
-            "post": {
-                "description": "Update the current user's settings to use the selected model",
-                "tags": [
-                    "models"
-                ],
-                "summary": "Enable model for chat/memory/embedding",
-                "parameters": [
-                    {
-                        "description": "Enable model payload",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.EnableModelRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/settings.Settings"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/models/model/{modelId}": {
             "get": {
                 "description": "Get a model configuration by its model_id field (e.g., gpt-4)",
@@ -4751,17 +4705,6 @@ const docTemplate = `{
                 },
                 "video_tokens": {
                     "type": "integer"
-                }
-            }
-        },
-        "handlers.EnableModelRequest": {
-            "type": "object",
-            "properties": {
-                "as": {
-                    "type": "string"
-                },
-                "model_id": {
-                    "type": "string"
                 }
             }
         },

@@ -11,30 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const clearChannelIdentityLinkedUser = `-- name: ClearChannelIdentityLinkedUser :one
-UPDATE channel_identities
-SET user_id = NULL, updated_at = now()
-WHERE id = $1
-RETURNING id, user_id, channel_type, channel_subject_id, display_name, avatar_url, metadata, created_at, updated_at
-`
-
-func (q *Queries) ClearChannelIdentityLinkedUser(ctx context.Context, id pgtype.UUID) (ChannelIdentity, error) {
-	row := q.db.QueryRow(ctx, clearChannelIdentityLinkedUser, id)
-	var i ChannelIdentity
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.ChannelType,
-		&i.ChannelSubjectID,
-		&i.DisplayName,
-		&i.AvatarUrl,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const createChannelIdentity = `-- name: CreateChannelIdentity :one
 INSERT INTO channel_identities (user_id, channel_type, channel_subject_id, display_name, avatar_url, metadata)
 VALUES ($1, $2, $3, $4, $5, $6)

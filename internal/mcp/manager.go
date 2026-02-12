@@ -175,7 +175,9 @@ func (m *Manager) Start(ctx context.Context, botID string) error {
 		return err
 	}
 	if err := ctr.SetupNetwork(ctx, task, m.containerID(botID)); err != nil {
-		_ = m.service.StopTask(ctx, m.containerID(botID), &ctr.StopTaskOptions{Force: true})
+		if stopErr := m.service.StopTask(ctx, m.containerID(botID), &ctr.StopTaskOptions{Force: true}); stopErr != nil {
+			m.logger.Warn("cleanup: stop task failed", slog.String("container_id", m.containerID(botID)), slog.Any("error", stopErr))
+		}
 		return err
 	}
 	return nil
@@ -197,9 +199,13 @@ func (m *Manager) Delete(ctx context.Context, botID string) error {
 	}
 
 	if task, taskErr := m.service.GetTask(ctx, m.containerID(botID)); taskErr == nil {
-		_ = ctr.RemoveNetwork(ctx, task, m.containerID(botID))
+		if err := ctr.RemoveNetwork(ctx, task, m.containerID(botID)); err != nil {
+			m.logger.Warn("cleanup: remove network failed", slog.String("container_id", m.containerID(botID)), slog.Any("error", err))
+		}
 	}
-	_ = m.service.DeleteTask(ctx, m.containerID(botID), &ctr.DeleteTaskOptions{Force: true})
+	if err := m.service.DeleteTask(ctx, m.containerID(botID), &ctr.DeleteTaskOptions{Force: true}); err != nil {
+		m.logger.Warn("cleanup: delete task failed", slog.String("container_id", m.containerID(botID)), slog.Any("error", err))
+	}
 	return m.service.DeleteContainer(ctx, m.containerID(botID), &ctr.DeleteContainerOptions{
 		CleanupSnapshot: true,
 	})
@@ -345,14 +351,6 @@ func (m *Manager) execWithCaptureContainerd(ctx context.Context, req ExecRequest
 		Stderr:   stderrBuf.String(),
 		ExitCode: result.ExitCode,
 	}, nil
-}
-
-// sshShellQuote wraps a string in single quotes for safe SSH transport.
-func sshShellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // DataDir returns the host data directory for a bot.

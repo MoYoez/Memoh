@@ -32,7 +32,7 @@ type UsersHandler struct {
 }
 
 type listMyIdentitiesResponse struct {
-	UserID string                              `json:"user_id"`
+	UserID string                       `json:"user_id"`
 	Items  []identities.ChannelIdentity `json:"items"`
 }
 
@@ -943,30 +943,9 @@ func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
 }
 
 func (h *UsersHandler) authorizeBotAccess(ctx context.Context, channelIdentityID, botID string) (bots.Bot, error) {
-	isAdmin, err := h.service.IsAdmin(ctx, channelIdentityID)
-	if err != nil {
-		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	bot, err := h.botService.AuthorizeAccess(ctx, channelIdentityID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
-	if err != nil {
-		if errors.Is(err, bots.ErrBotNotFound) {
-			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
-		}
-		if errors.Is(err, bots.ErrBotAccessDenied) {
-			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
-		}
-		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return bot, nil
+	return AuthorizeBotAccess(ctx, h.botService, h.service, channelIdentityID, botID, bots.AccessPolicy{AllowPublicMember: false})
 }
 
 func (h *UsersHandler) requireChannelIdentityID(c echo.Context) (string, error) {
-	channelIdentityID, err := auth.UserIDFromContext(c)
-	if err != nil {
-		return "", err
-	}
-	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
-		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	return channelIdentityID, nil
+	return RequireChannelIdentityID(c)
 }

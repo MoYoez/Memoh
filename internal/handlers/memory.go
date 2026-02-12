@@ -10,9 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/accounts"
-	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/conversation"
-	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/memory"
 )
 
@@ -168,7 +166,7 @@ func (h *MemoryHandler) ChatSearch(c echo.Context) error {
 	for _, scope := range scopes {
 		filters := buildNamespaceFilters(scope.Namespace, scope.ScopeID, payload.Filters)
 		if botID != "" {
-			filters["botId"] = botID
+			filters["bot_id"] = botID
 		}
 		req := memory.SearchRequest{
 			Query:            payload.Query,
@@ -378,12 +376,5 @@ func (h *MemoryHandler) requireChatParticipant(ctx context.Context, chatID, chan
 }
 
 func (h *MemoryHandler) requireChannelIdentityID(c echo.Context) (string, error) {
-	channelIdentityID, err := auth.UserIDFromContext(c)
-	if err != nil {
-		return "", err
-	}
-	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
-		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	return channelIdentityID, nil
+	return RequireChannelIdentityID(c)
 }

@@ -140,6 +140,7 @@ FROM bot_history_messages m
 LEFT JOIN channel_identities ci ON ci.id = m.sender_channel_identity_id
 WHERE m.bot_id = $1
 ORDER BY m.created_at ASC
+LIMIT 10000
 `
 
 type ListMessagesRow struct {

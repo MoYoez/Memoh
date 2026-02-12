@@ -349,7 +349,9 @@ func parseJSONMap(data []byte) map[string]any {
 		return nil
 	}
 	var m map[string]any
-	_ = json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		slog.Warn("parseJSONMap: unmarshal failed", slog.Any("error", err))
+	}
 	return m
 }
 

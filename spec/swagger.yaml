@@ -629,13 +629,6 @@ definitions:
       video_tokens:
         type: integer
     type: object
-  handlers.EnableModelRequest:
-    properties:
-      as:
-        type: string
-      model_id:
-        type: string
-    type: object
   handlers.ErrorResponse:
     properties:
       message:
@@ -3021,36 +3014,6 @@ paths:
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
       summary: Get model count
-      tags:
-      - models
-  /models/enable:
-    post:
-      description: Update the current user's settings to use the selected model
-      parameters:
-      - description: Enable model payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.EnableModelRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/settings.Settings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Enable model for chat/memory/embedding
       tags:
       - models
   /models/model/{modelId}:

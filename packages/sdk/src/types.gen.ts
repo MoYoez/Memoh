@@ -374,11 +374,6 @@ export type HandlersEmbeddingsUsage = {
     video_tokens?: number;
 };
 
-export type HandlersEnableModelRequest = {
-    as?: string;
-    model_id?: string;
-};
-
 export type HandlersErrorResponse = {
     message?: string;
 };
@@ -2922,42 +2917,6 @@ export type GetModelsCountResponses = {
 };
 
 export type GetModelsCountResponse = GetModelsCountResponses[keyof GetModelsCountResponses];
-
-export type PostModelsEnableData = {
-    /**
-     * Enable model payload
-     */
-    body: HandlersEnableModelRequest;
-    path?: never;
-    query?: never;
-    url: '/models/enable';
-};
-
-export type PostModelsEnableErrors = {
-    /**
-     * Bad Request
-     */
-    400: HandlersErrorResponse;
-    /**
-     * Not Found
-     */
-    404: HandlersErrorResponse;
-    /**
-     * Internal Server Error
-     */
-    500: HandlersErrorResponse;
-};
-
-export type PostModelsEnableError = PostModelsEnableErrors[keyof PostModelsEnableErrors];
-
-export type PostModelsEnableResponses = {
-    /**
-     * OK
-     */
-    200: SettingsSettings;
-};
-
-export type PostModelsEnableResponse = PostModelsEnableResponses[keyof PostModelsEnableResponses];
 
 export type DeleteModelsModelByModelIdData = {
     body?: never;

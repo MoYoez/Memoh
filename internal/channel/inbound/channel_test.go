@@ -1,4 +1,4 @@
-package router
+package inbound
 
 import (
 	"context"

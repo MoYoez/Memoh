@@ -43,8 +43,3 @@ SET user_id = $2, updated_at = now()
 WHERE id = $1
 RETURNING id, user_id, channel_type, channel_subject_id, display_name, avatar_url, metadata, created_at, updated_at;
 
--- name: ClearChannelIdentityLinkedUser :one
-UPDATE channel_identities
-SET user_id = NULL, updated_at = now()
-WHERE id = $1
-RETURNING id, user_id, channel_type, channel_subject_id, display_name, avatar_url, metadata, created_at, updated_at;

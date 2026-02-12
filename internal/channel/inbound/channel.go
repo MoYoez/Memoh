@@ -1,4 +1,4 @@
-package router
+package inbound
 
 import (
 	"context"
@@ -201,7 +201,7 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 
 	var desc channel.Descriptor
 	if p.registry != nil {
-		desc, _ = p.registry.GetDescriptor(msg.Channel)
+		desc, _ = p.registry.GetDescriptor(msg.Channel) //nolint:errcheck // descriptor lookup is best-effort
 	}
 	statusInfo := channel.ProcessingStatusInfo{
 		BotID:             identity.BotID,
@@ -269,7 +269,7 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 		return err
 	}
 
-	chunkCh, streamErrCh := p.runner.StreamChat(ctx, flow.ChatRequest{
+	chunkCh, streamErrCh := p.runner.StreamChat(ctx, conversation.ChatRequest{
 		BotID:                   identity.BotID,
 		ChatID:                  activeChatID,
 		Token:                   token,

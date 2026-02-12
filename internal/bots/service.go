@@ -419,7 +419,9 @@ func (s *Service) enqueueDeleteLifecycle(botID string) {
 				slog.String("bot_id", botID),
 				slog.Any("error", err),
 			)
-			_ = s.updateStatus(ctx, botID, BotStatusReady)
+			if err := s.updateStatus(ctx, botID, BotStatusReady); err != nil {
+				s.logger.Error("revert bot status failed", slog.String("bot_id", botID), slog.Any("error", err))
+			}
 			return
 		}
 		if err := s.queries.DeleteBotByID(ctx, botUUID); err != nil {
@@ -427,7 +429,9 @@ func (s *Service) enqueueDeleteLifecycle(botID string) {
 				slog.String("bot_id", botID),
 				slog.Any("error", err),
 			)
-			_ = s.updateStatus(ctx, botID, BotStatusReady)
+			if err := s.updateStatus(ctx, botID, BotStatusReady); err != nil {
+				s.logger.Error("revert bot status failed", slog.String("bot_id", botID), slog.Any("error", err))
+			}
 			return
 		}
 	}()

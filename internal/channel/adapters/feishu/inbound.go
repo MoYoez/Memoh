@@ -3,6 +3,7 @@ package feishu
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -26,7 +27,9 @@ func extractFeishuInbound(event *larkim.P2MessageReceiveV1, botOpenID string) ch
 
 	var contentMap map[string]any
 	if message.Content != nil {
-		_ = json.Unmarshal([]byte(*message.Content), &contentMap)
+		if err := json.Unmarshal([]byte(*message.Content), &contentMap); err != nil {
+			slog.Warn("feishu inbound: unmarshal content failed", slog.Any("error", err))
+		}
 	}
 	isMentioned := isFeishuBotMentioned(contentMap, message.Mentions, botOpenID)
 
