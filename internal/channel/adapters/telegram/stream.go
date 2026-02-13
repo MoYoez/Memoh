@@ -14,7 +14,9 @@ import (
 	"github.com/memohai/memoh/internal/channel"
 )
 
-const telegramStreamEditThrottle = 350 * time.Millisecond
+const telegramStreamEditThrottle = 250 * time.Millisecond
+
+var testEditFunc func(bot *tgbotapi.BotAPI, chatID int64, msgID int, text string, parseMode string) error
 
 type telegramOutboundStream struct {
 	adapter      *TelegramAdapter
@@ -91,8 +93,22 @@ func (s *telegramOutboundStream) editStreamMessage(ctx context.Context, text str
 	if err != nil {
 		return err
 	}
-	if err := editTelegramMessageText(bot, chatID, msgID, text, s.parseMode); err != nil {
-		return err
+	editErr := error(nil)
+	if testEditFunc != nil {
+		editErr = testEditFunc(bot, chatID, msgID, text, s.parseMode)
+	} else {
+		editErr = editTelegramMessageText(bot, chatID, msgID, text, s.parseMode)
+	}
+	if editErr != nil {
+		if isTelegramTooManyRequests(editErr) {
+			if d := getTelegramRetryAfter(editErr); d > 0 {
+				s.mu.Lock()
+				s.lastEditedAt = time.Now().Add(d)
+				s.mu.Unlock()
+			}
+			return nil
+		}
+		return editErr
 	}
 	s.mu.Lock()
 	s.lastEdited = text

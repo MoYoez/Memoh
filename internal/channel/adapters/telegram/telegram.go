@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -37,7 +38,12 @@ func NewTelegramAdapter(log *slog.Logger) *TelegramAdapter {
 	return adapter
 }
 
+var getOrCreateBotForTest func(a *TelegramAdapter, token, configID string) (*tgbotapi.BotAPI, error)
+
 func (a *TelegramAdapter) getOrCreateBot(token, configID string) (*tgbotapi.BotAPI, error) {
+	if getOrCreateBotForTest != nil {
+		return getOrCreateBotForTest(a, token, configID)
+	}
 	a.mu.RLock()
 	bot, ok := a.bots[token]
 	a.mu.RUnlock()
@@ -446,14 +452,72 @@ func sendTelegramTextReturnMessage(bot *tgbotapi.BotAPI, target string, text str
 	return chatID, messageID, nil
 }
 
+var (
+	sendEditForTest func(bot *tgbotapi.BotAPI, edit tgbotapi.EditMessageTextConfig) error
+	sleepForTest    func(time.Duration)
+)
+
 func editTelegramMessageText(bot *tgbotapi.BotAPI, chatID int64, messageID int, text string, parseMode string) error {
 	if len(text) > telegramMaxMessageLength {
 		text = text[:telegramMaxMessageLength-3] + "..."
 	}
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	edit.ParseMode = parseMode
-	_, err := bot.Send(edit)
+	send := sendEditForTest
+	if send == nil {
+		send = func(b *tgbotapi.BotAPI, e tgbotapi.EditMessageTextConfig) error { _, err := b.Send(e); return err }
+	}
+	sleep := sleepForTest
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	err := send(bot, edit)
+	if err != nil && isTelegramMessageNotModified(err) {
+		return nil
+	}
+	if err != nil && isTelegramTooManyRequests(err) {
+		if d := getTelegramRetryAfter(err); d > 0 {
+			sleep(d)
+			err = send(bot, edit)
+			if err != nil && isTelegramMessageNotModified(err) {
+				return nil
+			}
+		}
+	}
 	return err
+}
+
+func isTelegramMessageNotModified(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr tgbotapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == 400 && strings.Contains(apiErr.Message, "message is not modified")
+	}
+	return false
+}
+
+func isTelegramTooManyRequests(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr tgbotapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == 429
+	}
+	return false
+}
+
+func getTelegramRetryAfter(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
+	var apiErr tgbotapi.Error
+	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+		return time.Duration(apiErr.RetryAfter) * time.Second
+	}
+	return 0
 }
 
 func sendTelegramAttachment(bot *tgbotapi.BotAPI, target string, att channel.Attachment, caption string, replyTo int, parseMode string) error {

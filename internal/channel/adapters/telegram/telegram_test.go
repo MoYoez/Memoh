@@ -2,8 +2,10 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/memohai/memoh/internal/channel"
@@ -302,5 +304,111 @@ func TestTelegramAdapter_NormalizeAndResolve(t *testing.T) {
 	}
 	if target != "123" {
 		t.Fatalf("ResolveTarget: %s", target)
+	}
+}
+
+func TestIsTelegramMessageNotModified(t *testing.T) {
+	t.Parallel()
+
+	// Exact production error from Telegram API (editMessageText when content unchanged).
+	const productionMessageNotModified = "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", fmt.Errorf("network error"), false},
+		{"other api error", tgbotapi.Error{Code: 400, Message: "Bad Request: chat not found"}, false},
+		{"message is not modified", tgbotapi.Error{Code: 400, Message: productionMessageNotModified}, true},
+		{"production exact", tgbotapi.Error{Code: 400, Message: productionMessageNotModified}, true},
+		{"same text but code 500", tgbotapi.Error{Code: 500, Message: "message is not modified"}, false},
+		{"wrapped same", fmt.Errorf("wrapped: %w", tgbotapi.Error{Code: 400, Message: "Bad Request: message is not modified"}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTelegramMessageNotModified(tt.err)
+			if got != tt.want {
+				t.Fatalf("isTelegramMessageNotModified() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsTelegramTooManyRequests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"429", tgbotapi.Error{Code: 429, Message: "Too Many Requests"}, true},
+		{"400", tgbotapi.Error{Code: 400, Message: "Bad Request"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTelegramTooManyRequests(tt.err)
+			if got != tt.want {
+				t.Fatalf("isTelegramTooManyRequests() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetTelegramRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{"nil", nil, 0},
+		{"no retry_after", tgbotapi.Error{Code: 429, Message: "Too Many Requests"}, 0},
+		{"retry_after 2", tgbotapi.Error{Code: 429, Message: "Too Many Requests", ResponseParameters: tgbotapi.ResponseParameters{RetryAfter: 2}}, 2 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getTelegramRetryAfter(tt.err)
+			if got != tt.want {
+				t.Fatalf("getTelegramRetryAfter() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEditTelegramMessageText_429RetryThenSuccess(t *testing.T) {
+	t.Parallel()
+
+	var sendCalls int
+	origSend := sendEditForTest
+	origSleep := sleepForTest
+	sendEditForTest = func(_ *tgbotapi.BotAPI, _ tgbotapi.EditMessageTextConfig) error {
+		sendCalls++
+		if sendCalls == 1 {
+			return tgbotapi.Error{
+				Code:               429,
+				Message:            "Too Many Requests",
+				ResponseParameters: tgbotapi.ResponseParameters{RetryAfter: 1},
+			}
+		}
+		return nil
+	}
+	sleepForTest = func(time.Duration) {}
+	defer func() {
+		sendEditForTest = origSend
+		sleepForTest = origSleep
+	}()
+
+	bot := &tgbotapi.BotAPI{Token: "test"}
+	err := editTelegramMessageText(bot, 1, 1, "hi", "")
+	if err != nil {
+		t.Fatalf("editTelegramMessageText after 429 retry should return nil: %v", err)
+	}
+	if sendCalls != 2 {
+		t.Fatalf("send should be called twice (first 429, then retry): got %d", sendCalls)
 	}
 }
