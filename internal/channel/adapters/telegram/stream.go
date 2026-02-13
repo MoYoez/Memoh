@@ -244,11 +244,11 @@ func (s *telegramOutboundStream) Push(ctx context.Context, event channel.StreamE
 			}
 			parseMode := resolveTelegramParseMode(msg.Format)
 			for i, att := range msg.Attachments {
-				rto := replyTo
+				to := replyTo
 				if i > 0 {
-					rto = 0
+					to = 0
 				}
-				if err := sendTelegramAttachment(bot, s.target, att, "", rto, parseMode); err != nil && s.adapter.logger != nil {
+				if err := sendTelegramAttachment(bot, s.target, att, "", to, parseMode); err != nil && s.adapter.logger != nil {
 					s.adapter.logger.Error("stream final attachment failed", slog.String("config_id", s.cfg.ID), slog.Any("error", err))
 				}
 			}
