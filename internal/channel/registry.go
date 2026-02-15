@@ -216,6 +216,16 @@ func (r *Registry) GetMessageEditor(channelType ChannelType) (MessageEditor, boo
 	return editor, ok
 }
 
+// GetReactor returns the Reactor for the given channel type, or nil if unsupported.
+func (r *Registry) GetReactor(channelType ChannelType) (Reactor, bool) {
+	adapter, ok := r.Get(channelType)
+	if !ok {
+		return nil, false
+	}
+	reactor, ok := adapter.(Reactor)
+	return reactor, ok
+}
+
 // GetReceiver returns the Receiver for the given channel type, or nil if unsupported.
 func (r *Registry) GetReceiver(channelType ChannelType) (Receiver, bool) {
 	adapter, ok := r.Get(channelType)

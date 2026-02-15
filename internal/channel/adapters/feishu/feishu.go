@@ -203,6 +203,32 @@ func (a *FeishuAdapter) processingReactionGateway(cfg channel.ChannelConfig) (pr
 	return gateway, nil
 }
 
+// React adds an emoji reaction to a message (implements channel.Reactor).
+// The target parameter is unused for Feishu; reactions are keyed by message_id.
+func (a *FeishuAdapter) React(ctx context.Context, cfg channel.ChannelConfig, _ string, messageID string, emoji string) error {
+	gateway, err := a.processingReactionGateway(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = gateway.Add(ctx, messageID, emoji)
+	return err
+}
+
+// Unreact removes the bot's reaction from a message (implements channel.Reactor).
+// For Feishu, this requires the reaction_id which we don't have here, so we pass
+// the emoji as reaction_id. If the caller stored the reaction_id from React, they
+// should pass it as emoji. This is a best-effort operation.
+func (a *FeishuAdapter) Unreact(ctx context.Context, cfg channel.ChannelConfig, _ string, messageID string, reactionID string) error {
+	if strings.TrimSpace(reactionID) == "" {
+		return nil
+	}
+	gateway, err := a.processingReactionGateway(cfg)
+	if err != nil {
+		return err
+	}
+	return gateway.Remove(ctx, messageID, reactionID)
+}
+
 func addProcessingReaction(ctx context.Context, gateway processingReactionGateway, messageID, reactionType string) (string, error) {
 	if gateway == nil {
 		return "", fmt.Errorf("processing reaction gateway is nil")

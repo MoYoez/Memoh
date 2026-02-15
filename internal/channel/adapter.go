@@ -103,6 +103,12 @@ type MessageEditor interface {
 	Unsend(ctx context.Context, cfg ChannelConfig, target string, messageID string) error
 }
 
+// Reactor adds or removes emoji reactions on messages.
+type Reactor interface {
+	React(ctx context.Context, cfg ChannelConfig, target string, messageID string, emoji string) error
+	Unreact(ctx context.Context, cfg ChannelConfig, target string, messageID string, emoji string) error
+}
+
 // SelfDiscoverer retrieves the adapter bot's own identity from the platform.
 // The returned map is merged into ChannelConfig.SelfIdentity and persisted.
 type SelfDiscoverer interface {

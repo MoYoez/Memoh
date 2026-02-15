@@ -797,7 +797,7 @@ func collectMessageToolContext(registry *channel.Registry, messages []conversati
 	suppressReplies := false
 	for _, msg := range messages {
 		for _, tc := range msg.ToolCalls {
-			if tc.Function.Name != "send_message" {
+			if tc.Function.Name != "send" && tc.Function.Name != "send_message" {
 				continue
 			}
 			var args sendMessageToolArgs

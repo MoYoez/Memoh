@@ -62,21 +62,7 @@ ${quote('/data')} is your HOME, you are allowed to read and write files in it, t
 - ${quote('read')}: read file content
 - ${quote('write')}: write file content
 - ${quote('list')}: list directory entries
-- ${quote('edit')}: replace exact text in a file. Input format:
-
-${block([
-  '{',
-  '  "path": "relative/path/to/file.txt",',
-  '  "old_text": "exact text to find (must match exactly)",',
-  '  "new_text": "replacement text"',
-  '}',
-].join('\n'))}
-
-  Rules:
-  - ${quote('old_text')} must be unique in the file
-  - Matching is exact (including whitespace and newlines)
-  - If multiple occurrences exist, include more context in ${quote('old_text')}
-
+- ${quote('edit')}: replace exact text in a file
 - ${quote('exec')}: execute command
 
 ## Every Session
@@ -95,6 +81,13 @@ Before anything else:
 ## Memory
 
 For memory more previous, please use ${quote('search_memory')} tool.
+
+## Message
+
+There are tools you can use in some channels:
+
+- ${quote('send')}: send message to a channel or session
+- ${quote('react')}: add or remove emoji reaction
 
 ## Contacts
 

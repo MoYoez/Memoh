@@ -11,41 +11,54 @@ import (
 	mcpgw "github.com/memohai/memoh/internal/mcp"
 )
 
-const toolSendMessage = "send_message"
+const (
+	toolSend  = "send"
+	toolReact = "react"
+)
 
+// Sender sends outbound messages through channel manager.
 type Sender interface {
 	Send(ctx context.Context, botID string, channelType channel.ChannelType, req channel.SendRequest) error
 }
 
+// Reactor adds or removes emoji reactions through channel manager.
+type Reactor interface {
+	React(ctx context.Context, botID string, channelType channel.ChannelType, req channel.ReactRequest) error
+}
+
+// ChannelTypeResolver parses platform name to channel type.
 type ChannelTypeResolver interface {
 	ParseChannelType(raw string) (channel.ChannelType, error)
 }
 
+// Executor exposes send and react as MCP tools.
 type Executor struct {
 	sender   Sender
+	reactor  Reactor
 	resolver ChannelTypeResolver
 	logger   *slog.Logger
 }
 
-func NewExecutor(log *slog.Logger, sender Sender, resolver ChannelTypeResolver) *Executor {
+// NewExecutor creates a message tool executor.
+// reactor may be nil; the react tool will not be listed when reactor is unavailable.
+func NewExecutor(log *slog.Logger, sender Sender, reactor Reactor, resolver ChannelTypeResolver) *Executor {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Executor{
 		sender:   sender,
+		reactor:  reactor,
 		resolver: resolver,
 		logger:   log.With(slog.String("provider", "message_tool")),
 	}
 }
 
 func (p *Executor) ListTools(ctx context.Context, session mcpgw.ToolSessionContext) ([]mcpgw.ToolDescriptor, error) {
-	if p.sender == nil || p.resolver == nil {
-		return []mcpgw.ToolDescriptor{}, nil
-	}
-	return []mcpgw.ToolDescriptor{
-		{
-			Name:        toolSendMessage,
-			Description: "Send a message to a channel or session",
+	var tools []mcpgw.ToolDescriptor
+	if p.sender != nil && p.resolver != nil {
+		tools = append(tools, mcpgw.ToolDescriptor{
+			Name:        toolSend,
+			Description: "Send a message to a channel or session. Supports text, structured messages, attachments, and replies.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -73,6 +86,10 @@ func (p *Executor) ListTools(ctx context.Context, session mcpgw.ToolSessionConte
 						"type":        "string",
 						"description": "Message text shortcut when message object is omitted",
 					},
+					"reply_to": map[string]any{
+						"type":        "string",
+						"description": "Message ID to reply to. The reply will reference this message on the platform.",
+					},
 					"message": map[string]any{
 						"type":        "object",
 						"description": "Structured message payload with text/parts/attachments",
@@ -80,37 +97,70 @@ func (p *Executor) ListTools(ctx context.Context, session mcpgw.ToolSessionConte
 				},
 				"required": []string{},
 			},
-		},
-	}, nil
+		})
+	}
+	if p.reactor != nil && p.resolver != nil {
+		tools = append(tools, mcpgw.ToolDescriptor{
+			Name:        toolReact,
+			Description: "Add or remove an emoji reaction on a channel message",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"bot_id": map[string]any{
+						"type":        "string",
+						"description": "Bot ID, optional and defaults to current bot",
+					},
+					"platform": map[string]any{
+						"type":        "string",
+						"description": "Channel platform name. Defaults to current session platform.",
+					},
+					"target": map[string]any{
+						"type":        "string",
+						"description": "Channel target (chat/group ID). Defaults to current session reply target.",
+					},
+					"message_id": map[string]any{
+						"type":        "string",
+						"description": "The message ID to react to",
+					},
+					"emoji": map[string]any{
+						"type":        "string",
+						"description": "Emoji to react with (e.g. 👍, ❤️). Required when adding a reaction.",
+					},
+					"remove": map[string]any{
+						"type":        "boolean",
+						"description": "If true, remove the reaction instead of adding it. Default false.",
+					},
+				},
+				"required": []string{"message_id"},
+			},
+		})
+	}
+	return tools, nil
 }
 
 func (p *Executor) CallTool(ctx context.Context, session mcpgw.ToolSessionContext, toolName string, arguments map[string]any) (map[string]any, error) {
-	if toolName != toolSendMessage {
+	switch toolName {
+	case toolSend:
+		return p.callSend(ctx, session, arguments)
+	case toolReact:
+		return p.callReact(ctx, session, arguments)
+	default:
 		return nil, mcpgw.ErrToolNotFound
 	}
+}
+
+// --- send ---
+
+func (p *Executor) callSend(ctx context.Context, session mcpgw.ToolSessionContext, arguments map[string]any) (map[string]any, error) {
 	if p.sender == nil || p.resolver == nil {
 		return mcpgw.BuildToolErrorResult("message service not available"), nil
 	}
 
-	botID := mcpgw.FirstStringArg(arguments, "bot_id")
-	if botID == "" {
-		botID = strings.TrimSpace(session.BotID)
+	botID, err := p.resolveBotID(arguments, session)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
 	}
-	if botID == "" {
-		return mcpgw.BuildToolErrorResult("bot_id is required"), nil
-	}
-	if strings.TrimSpace(session.BotID) != "" && botID != strings.TrimSpace(session.BotID) {
-		return mcpgw.BuildToolErrorResult("bot_id mismatch"), nil
-	}
-
-	platform := mcpgw.FirstStringArg(arguments, "platform")
-	if platform == "" {
-		platform = strings.TrimSpace(session.CurrentPlatform)
-	}
-	if platform == "" {
-		return mcpgw.BuildToolErrorResult("platform is required"), nil
-	}
-	channelType, err := p.resolver.ParseChannelType(platform)
+	channelType, err := p.resolvePlatform(arguments, session)
 	if err != nil {
 		return mcpgw.BuildToolErrorResult(err.Error()), nil
 	}
@@ -119,6 +169,11 @@ func (p *Executor) CallTool(ctx context.Context, session mcpgw.ToolSessionContex
 	outboundMessage, parseErr := parseOutboundMessage(arguments, messageText)
 	if parseErr != nil {
 		return mcpgw.BuildToolErrorResult(parseErr.Error()), nil
+	}
+
+	// Attach reply reference if reply_to is provided.
+	if replyTo := mcpgw.FirstStringArg(arguments, "reply_to"); replyTo != "" {
+		outboundMessage.Reply = &channel.ReplyRef{MessageID: replyTo}
 	}
 
 	target := mcpgw.FirstStringArg(arguments, "target")
@@ -136,7 +191,7 @@ func (p *Executor) CallTool(ctx context.Context, session mcpgw.ToolSessionContex
 		Message:           outboundMessage,
 	}
 	if err := p.sender.Send(ctx, botID, channelType, sendReq); err != nil {
-		p.logger.Warn("send message failed", slog.Any("error", err), slog.String("bot_id", botID), slog.String("platform", platform))
+		p.logger.Warn("send failed", slog.Any("error", err), slog.String("bot_id", botID), slog.String("platform", string(channelType)))
 		return mcpgw.BuildToolErrorResult(err.Error()), nil
 	}
 
@@ -149,6 +204,92 @@ func (p *Executor) CallTool(ctx context.Context, session mcpgw.ToolSessionContex
 		"instruction":         "Message delivered successfully. You have completed your response. Please STOP now and do not call any more tools.",
 	}
 	return mcpgw.BuildToolSuccessResult(payload), nil
+}
+
+// --- react ---
+
+func (p *Executor) callReact(ctx context.Context, session mcpgw.ToolSessionContext, arguments map[string]any) (map[string]any, error) {
+	if p.reactor == nil || p.resolver == nil {
+		return mcpgw.BuildToolErrorResult("reaction service not available"), nil
+	}
+
+	botID, err := p.resolveBotID(arguments, session)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	channelType, err := p.resolvePlatform(arguments, session)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+
+	target := mcpgw.FirstStringArg(arguments, "target")
+	if target == "" {
+		target = strings.TrimSpace(session.ReplyTarget)
+	}
+	if target == "" {
+		return mcpgw.BuildToolErrorResult("target is required"), nil
+	}
+
+	messageID := mcpgw.FirstStringArg(arguments, "message_id")
+	if messageID == "" {
+		return mcpgw.BuildToolErrorResult("message_id is required"), nil
+	}
+
+	emoji := mcpgw.FirstStringArg(arguments, "emoji")
+	remove, _, _ := mcpgw.BoolArg(arguments, "remove")
+
+	reactReq := channel.ReactRequest{
+		Target:    target,
+		MessageID: messageID,
+		Emoji:     emoji,
+		Remove:    remove,
+	}
+	if err := p.reactor.React(ctx, botID, channelType, reactReq); err != nil {
+		p.logger.Warn("react failed", slog.Any("error", err), slog.String("bot_id", botID), slog.String("platform", string(channelType)))
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+
+	action := "added"
+	if remove {
+		action = "removed"
+	}
+	payload := map[string]any{
+		"ok":         true,
+		"bot_id":     botID,
+		"platform":   channelType.String(),
+		"target":     target,
+		"message_id": messageID,
+		"emoji":      emoji,
+		"action":     action,
+	}
+	return mcpgw.BuildToolSuccessResult(payload), nil
+}
+
+// --- shared helpers ---
+
+func (p *Executor) resolveBotID(arguments map[string]any, session mcpgw.ToolSessionContext) (string, error) {
+	botID := mcpgw.FirstStringArg(arguments, "bot_id")
+	if botID == "" {
+		botID = strings.TrimSpace(session.BotID)
+	}
+	if botID == "" {
+		return "", fmt.Errorf("bot_id is required")
+	}
+	if strings.TrimSpace(session.BotID) != "" && botID != strings.TrimSpace(session.BotID) {
+		return "", fmt.Errorf("bot_id mismatch")
+	}
+	return botID, nil
+}
+
+func (p *Executor) resolvePlatform(arguments map[string]any, session mcpgw.ToolSessionContext) (channel.ChannelType, error) {
+	platform := mcpgw.FirstStringArg(arguments, "platform")
+	if platform == "" {
+		platform = strings.TrimSpace(session.CurrentPlatform)
+	}
+	if platform == "" {
+		return "", fmt.Errorf("platform is required")
+	}
+	return p.resolver.ParseChannelType(platform)
 }
 
 func parseOutboundMessage(arguments map[string]any, fallbackText string) (channel.Message, error) {

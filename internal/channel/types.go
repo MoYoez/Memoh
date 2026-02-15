@@ -350,3 +350,11 @@ type SendRequest struct {
 	ChannelIdentityID string  `json:"channel_identity_id,omitempty"`
 	Message           Message `json:"message"`
 }
+
+// ReactRequest is the input for adding or removing an emoji reaction on a message.
+type ReactRequest struct {
+	Target    string `json:"target"`
+	MessageID string `json:"message_id"`
+	Emoji     string `json:"emoji"`
+	Remove    bool   `json:"remove,omitempty"`
+}

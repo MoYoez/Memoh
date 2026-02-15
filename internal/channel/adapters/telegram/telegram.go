@@ -839,13 +839,10 @@ func truncateTelegramText(text string) string {
 	return text[:limit] + suffix
 }
 
-const processingReactionEmoji = "👀"
-
-// ProcessingStarted adds a reaction to the user's message to indicate processing.
+// ProcessingStarted sends a "typing" chat action to indicate processing.
 func (a *TelegramAdapter) ProcessingStarted(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, info channel.ProcessingStatusInfo) (channel.ProcessingStatusHandle, error) {
 	chatID := strings.TrimSpace(info.ReplyTarget)
-	messageID := strings.TrimSpace(info.SourceMessageID)
-	if chatID == "" || messageID == "" {
+	if chatID == "" {
 		return channel.ProcessingStatusHandle{}, nil
 	}
 	telegramCfg, err := parseConfig(cfg.Credentials)
@@ -856,39 +853,30 @@ func (a *TelegramAdapter) ProcessingStarted(ctx context.Context, cfg channel.Cha
 	if err != nil {
 		return channel.ProcessingStatusHandle{}, err
 	}
-	if err := setTelegramReaction(bot, chatID, messageID, processingReactionEmoji); err != nil {
-		if a.logger != nil {
-			a.logger.Warn("add processing reaction failed", slog.String("config_id", cfg.ID), slog.Any("error", err))
-		}
-		return channel.ProcessingStatusHandle{}, nil
+	if err := sendTelegramTyping(bot, chatID); err != nil && a.logger != nil {
+		a.logger.Warn("send typing action failed", slog.String("config_id", cfg.ID), slog.Any("error", err))
 	}
-	return channel.ProcessingStatusHandle{Token: processingReactionEmoji}, nil
+	return channel.ProcessingStatusHandle{}, nil
 }
 
-// ProcessingCompleted removes the processing reaction after reply is sent.
+// ProcessingCompleted is a no-op for Telegram (typing indicator clears automatically).
 func (a *TelegramAdapter) ProcessingCompleted(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, info channel.ProcessingStatusInfo, handle channel.ProcessingStatusHandle) error {
-	if handle.Token == "" {
-		return nil
-	}
-	chatID := strings.TrimSpace(info.ReplyTarget)
-	messageID := strings.TrimSpace(info.SourceMessageID)
-	if chatID == "" || messageID == "" {
-		return nil
-	}
-	telegramCfg, err := parseConfig(cfg.Credentials)
-	if err != nil {
-		return err
-	}
-	bot, err := a.getOrCreateBot(telegramCfg.BotToken, cfg.ID)
-	if err != nil {
-		return err
-	}
-	return clearTelegramReaction(bot, chatID, messageID)
+	return nil
 }
 
-// ProcessingFailed removes the processing reaction on failure.
+// ProcessingFailed is a no-op for Telegram (typing indicator clears automatically).
 func (a *TelegramAdapter) ProcessingFailed(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, info channel.ProcessingStatusInfo, handle channel.ProcessingStatusHandle, cause error) error {
-	return a.ProcessingCompleted(ctx, cfg, msg, info, handle)
+	return nil
+}
+
+func sendTelegramTyping(bot *tgbotapi.BotAPI, chatID string) error {
+	chatIDInt, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return err
+	}
+	action := tgbotapi.NewChatAction(chatIDInt, tgbotapi.ChatTyping)
+	_, err = bot.Request(action)
+	return err
 }
 
 func setTelegramReaction(bot *tgbotapi.BotAPI, chatID, messageID, emoji string) error {
@@ -907,4 +895,31 @@ func clearTelegramReaction(bot *tgbotapi.BotAPI, chatID, messageID string) error
 	params.AddNonEmpty("reaction", "[]")
 	_, err := bot.MakeRequest("setMessageReaction", params)
 	return err
+}
+
+// React adds an emoji reaction to a message (implements channel.Reactor).
+func (a *TelegramAdapter) React(ctx context.Context, cfg channel.ChannelConfig, target string, messageID string, emoji string) error {
+	telegramCfg, err := parseConfig(cfg.Credentials)
+	if err != nil {
+		return err
+	}
+	bot, err := a.getOrCreateBot(telegramCfg.BotToken, cfg.ID)
+	if err != nil {
+		return err
+	}
+	return setTelegramReaction(bot, target, messageID, emoji)
+}
+
+// Unreact removes the bot's reaction from a message (implements channel.Reactor).
+// The emoji parameter is ignored; Telegram clears all bot reactions at once.
+func (a *TelegramAdapter) Unreact(ctx context.Context, cfg channel.ChannelConfig, target string, messageID string, _ string) error {
+	telegramCfg, err := parseConfig(cfg.Credentials)
+	if err != nil {
+		return err
+	}
+	bot, err := a.getOrCreateBot(telegramCfg.BotToken, cfg.ID)
+	if err != nil {
+		return err
+	}
+	return clearTelegramReaction(bot, target, messageID)
 }

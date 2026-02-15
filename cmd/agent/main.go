@@ -345,7 +345,7 @@ func provideContainerdHandler(log *slog.Logger, service ctr.Service, cfg config.
 }
 
 func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManager *channel.Manager, registry *channel.Registry, channelService *channel.Service, scheduleService *schedule.Service, memoryService *memory.Service, chatService *conversation.Service, accountService *accounts.Service, manager *mcp.Manager, containerdHandler *handlers.ContainerdHandler, mcpConnService *mcp.ConnectionService) *mcp.ToolGatewayService {
-	messageExec := mcpmessage.NewExecutor(log, channelManager, registry)
+	messageExec := mcpmessage.NewExecutor(log, channelManager, channelManager, registry)
 	directoryExec := mcpdirectory.NewExecutor(log, registry, channelService, registry)
 	scheduleExec := mcpschedule.NewExecutor(log, scheduleService)
 	memoryExec := mcpmemory.NewExecutor(log, memoryService, chatService, accountService)
