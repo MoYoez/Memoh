@@ -34,12 +34,20 @@ type telegramOutboundStream struct {
 	lastEditedAt time.Time
 }
 
-func (s *telegramOutboundStream) getBotAndReply(ctx context.Context) (bot *tgbotapi.BotAPI, replyTo int, err error) {
+func (s *telegramOutboundStream) getBot(ctx context.Context) (bot *tgbotapi.BotAPI, err error) {
 	telegramCfg, err := parseConfig(s.cfg.Credentials)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	bot, err = s.adapter.getOrCreateBot(telegramCfg.BotToken, s.cfg.ID)
+	if err != nil {
+		return nil, err
+	}
+	return bot, nil
+}
+
+func (s *telegramOutboundStream) getBotAndReply(ctx context.Context) (bot *tgbotapi.BotAPI, replyTo int, err error) {
+	bot, err = s.getBot(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -47,8 +55,21 @@ func (s *telegramOutboundStream) getBotAndReply(ctx context.Context) (bot *tgbot
 	return bot, replyTo, nil
 }
 
+func (s *telegramOutboundStream) refreshTypingAction(ctx context.Context) error {
+	// When ensureStreamMessage is called, always means that the message has not been completely generated
+	// so always refresh the "typing" action to improve the user experience
+	bot, err := s.getBot(ctx)
+	if err != nil {
+		return err
+	}
+	action := tgbotapi.NewChatAction(s.streamChatID, tgbotapi.ChatTyping)
+	_, err = bot.Request(action)
+	return err
+}
+
 func (s *telegramOutboundStream) ensureStreamMessage(ctx context.Context, text string) error {
 	s.mu.Lock()
+	go s.refreshTypingAction(ctx)
 	if s.streamMsgID != 0 {
 		s.mu.Unlock()
 		return nil
@@ -60,6 +81,8 @@ func (s *telegramOutboundStream) ensureStreamMessage(ctx context.Context, text s
 	}
 	if strings.TrimSpace(text) == "" {
 		text = "..."
+	} else {
+		text = text + "\n……"
 	}
 	chatID, msgID, err := sendTelegramTextReturnMessage(bot, s.target, text, replyTo, s.parseMode)
 	if err != nil {
@@ -84,6 +107,7 @@ func (s *telegramOutboundStream) editStreamMessage(ctx context.Context, text str
 	if msgID == 0 {
 		return nil
 	}
+	text = text + "\n……"
 	if strings.TrimSpace(text) == lastEdited {
 		return nil
 	}
