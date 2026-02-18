@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"go.uber.org/fx/fxevent"
 	"golang.org/x/crypto/bcrypt"
 
+	dbembed "github.com/memohai/memoh/db"
 	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/bind"
 	"github.com/memohai/memoh/internal/boot"
@@ -49,7 +52,6 @@ import (
 	mcpweb "github.com/memohai/memoh/internal/mcp/providers/web"
 	mcpfederation "github.com/memohai/memoh/internal/mcp/sources/federation"
 	"github.com/memohai/memoh/internal/media"
-	"github.com/memohai/memoh/internal/media/providers/containerfs"
 	"github.com/memohai/memoh/internal/memory"
 	"github.com/memohai/memoh/internal/message"
 	"github.com/memohai/memoh/internal/message/event"
@@ -61,11 +63,66 @@ import (
 	"github.com/memohai/memoh/internal/searchproviders"
 	"github.com/memohai/memoh/internal/server"
 	"github.com/memohai/memoh/internal/settings"
+	"github.com/memohai/memoh/internal/storage/providers/containerfs"
 	"github.com/memohai/memoh/internal/subagent"
 	"github.com/memohai/memoh/internal/version"
 )
 
+func migrationsFS() fs.FS {
+	sub, err := fs.Sub(dbembed.MigrationsFS, "migrations")
+	if err != nil {
+		panic(fmt.Sprintf("embedded migrations: %v", err))
+	}
+	return sub
+}
+
 func main() {
+	cmd := "serve"
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+
+	switch cmd {
+	case "serve":
+		runServe()
+	case "migrate":
+		runMigrate(os.Args[2:])
+	case "version":
+		fmt.Printf("memoh-server %s\n", version.GetInfo())
+	default:
+		fmt.Fprintf(os.Stderr, "Usage: memoh-server <command>\n\nCommands:\n  serve     Start the server (default)\n  migrate   Run database migrations (up|down|version|force)\n  version   Print version information\n")
+		os.Exit(1)
+	}
+}
+
+func runMigrate(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: memoh-server migrate <up|down|version|force N>\n")
+		os.Exit(1)
+	}
+
+	cfg, err := provideConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		os.Exit(1)
+	}
+
+	logger.Init(cfg.Log.Level, cfg.Log.Format)
+	log := logger.L
+
+	migrateCmd := args[0]
+	var migrateArgs []string
+	if len(args) > 1 {
+		migrateArgs = args[1:]
+	}
+
+	if err := db.RunMigrate(log, cfg.Postgres, migrationsFS(), migrateCmd, migrateArgs); err != nil {
+		log.Error("migration failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
+func runServe() {
 	fx.New(
 		fx.Provide(
 			provideConfig,
@@ -316,9 +373,10 @@ func provideScheduleTriggerer(resolver *flow.Resolver) schedule.Triggerer {
 // conversation flow
 // ---------------------------------------------------------------------------
 
-func provideChatResolver(log *slog.Logger, cfg config.Config, modelsService *models.Service, queries *dbsqlc.Queries, memoryService *memory.Service, chatService *conversation.Service, msgService *message.DBService, settingsService *settings.Service, containerdHandler *handlers.ContainerdHandler) *flow.Resolver {
+func provideChatResolver(log *slog.Logger, cfg config.Config, modelsService *models.Service, queries *dbsqlc.Queries, memoryService *memory.Service, chatService *conversation.Service, msgService *message.DBService, settingsService *settings.Service, mediaService *media.Service, containerdHandler *handlers.ContainerdHandler) *flow.Resolver {
 	resolver := flow.NewResolver(log, modelsService, queries, memoryService, chatService, msgService, settingsService, cfg.AgentGateway.BaseURL(), 120*time.Second)
 	resolver.SetSkillLoader(&skillLoaderAdapter{handler: containerdHandler})
+	resolver.SetGatewayAssetLoader(&gatewayAssetLoaderAdapter{media: mediaService})
 	return resolver
 }
 
@@ -326,9 +384,11 @@ func provideChatResolver(log *slog.Logger, cfg config.Config, modelsService *mod
 // channel providers
 // ---------------------------------------------------------------------------
 
-func provideChannelRegistry(log *slog.Logger, hub *local.RouteHub) *channel.Registry {
+func provideChannelRegistry(log *slog.Logger, hub *local.RouteHub, mediaService *media.Service) *channel.Registry {
 	registry := channel.NewRegistry()
-	registry.MustRegister(telegram.NewTelegramAdapter(log))
+	tgAdapter := telegram.NewTelegramAdapter(log)
+	tgAdapter.SetAssetOpener(mediaService)
+	registry.MustRegister(tgAdapter)
 	registry.MustRegister(feishu.NewFeishuAdapter(log))
 	registry.MustRegister(local.NewCLIAdapter(hub))
 	registry.MustRegister(local.NewWebAdapter(hub))
@@ -338,6 +398,7 @@ func provideChannelRegistry(log *slog.Logger, hub *local.RouteHub) *channel.Regi
 func provideChannelRouter(
 	log *slog.Logger,
 	registry *channel.Registry,
+	hub *local.RouteHub,
 	routeService *route.DBService,
 	msgService *message.DBService,
 	resolver *flow.Resolver,
@@ -351,6 +412,7 @@ func provideChannelRouter(
 ) *inbound.ChannelInboundProcessor {
 	processor := inbound.NewChannelInboundProcessor(log, registry, routeService, msgService, resolver, identityService, botService, policyService, preauthService, bindService, rc.JwtSecret, 5*time.Minute)
 	processor.SetMediaService(mediaService)
+	processor.SetStreamObserver(local.NewRouteHubBroadcaster(hub))
 	return processor
 }
 
@@ -370,8 +432,8 @@ func provideChannelLifecycleService(channelStore *channel.Store, channelManager 
 // containerd handler & tool gateway
 // ---------------------------------------------------------------------------
 
-func provideContainerdHandler(log *slog.Logger, service ctr.Service, cfg config.Config, botService *bots.Service, accountService *accounts.Service, policyService *policy.Service, queries *dbsqlc.Queries) *handlers.ContainerdHandler {
-	return handlers.NewContainerdHandler(log, service, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, policyService, queries)
+func provideContainerdHandler(log *slog.Logger, service ctr.Service, manager *mcp.Manager, cfg config.Config, botService *bots.Service, accountService *accounts.Service, policyService *policy.Service, queries *dbsqlc.Queries) *handlers.ContainerdHandler {
+	return handlers.NewContainerdHandler(log, service, manager, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, policyService, queries)
 }
 
 func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManager *channel.Manager, registry *channel.Registry, channelStore *channel.Store, scheduleService *schedule.Service, memoryService *memory.Service, chatService *conversation.Service, accountService *accounts.Service, settingsService *settings.Service, searchProviderService *searchproviders.Service, manager *mcp.Manager, containerdHandler *handlers.ContainerdHandler, mcpConnService *mcp.ConnectionService) *mcp.ToolGatewayService {
@@ -418,13 +480,13 @@ func provideAuthHandler(log *slog.Logger, accountService *accounts.Service, rc *
 	return handlers.NewAuthHandler(log, accountService, rc.JwtSecret, rc.JwtExpiresIn)
 }
 
-func provideMessageHandler(log *slog.Logger, resolver *flow.Resolver, chatService *conversation.Service, msgService *message.DBService, mediaService *media.Service, botService *bots.Service, accountService *accounts.Service, identityService *identities.Service, hub *event.Hub) *handlers.MessageHandler {
-	h := handlers.NewMessageHandler(log, resolver, chatService, msgService, botService, accountService, identityService, hub)
+func provideMessageHandler(log *slog.Logger, chatService *conversation.Service, msgService *message.DBService, mediaService *media.Service, botService *bots.Service, accountService *accounts.Service, hub *event.Hub) *handlers.MessageHandler {
+	h := handlers.NewMessageHandler(log, chatService, msgService, botService, accountService, hub)
 	h.SetMediaService(mediaService)
 	return h
 }
 
-func provideMediaService(log *slog.Logger, queries *dbsqlc.Queries, cfg config.Config) (*media.Service, error) {
+func provideMediaService(log *slog.Logger, cfg config.Config) (*media.Service, error) {
 	dataRoot := strings.TrimSpace(cfg.MCP.DataRoot)
 	if dataRoot == "" {
 		dataRoot = config.DefaultDataRoot
@@ -433,7 +495,7 @@ func provideMediaService(log *slog.Logger, queries *dbsqlc.Queries, cfg config.C
 	if err != nil {
 		return nil, fmt.Errorf("init media provider: %w", err)
 	}
-	return media.NewService(log, queries, provider), nil
+	return media.NewService(log, provider), nil
 }
 
 func provideUsersHandler(log *slog.Logger, accountService *accounts.Service, identityService *identities.Service, botService *bots.Service, routeService *route.DBService, channelStore *channel.Store, channelLifecycle *channel.Lifecycle, channelManager *channel.Manager, registry *channel.Registry) *handlers.UsersHandler {
@@ -710,4 +772,20 @@ func (a *skillLoaderAdapter) LoadSkills(ctx context.Context, botID string) ([]fl
 		}
 	}
 	return entries, nil
+}
+
+// gatewayAssetLoaderAdapter bridges media service to flow gateway asset loader.
+type gatewayAssetLoaderAdapter struct {
+	media *media.Service
+}
+
+func (a *gatewayAssetLoaderAdapter) OpenForGateway(ctx context.Context, botID, contentHash string) (io.ReadCloser, string, error) {
+	if a == nil || a.media == nil {
+		return nil, "", fmt.Errorf("media service not configured")
+	}
+	reader, asset, err := a.media.Open(ctx, botID, contentHash)
+	if err != nil {
+		return nil, "", err
+	}
+	return reader, strings.TrimSpace(asset.Mime), nil
 }

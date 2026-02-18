@@ -209,12 +209,12 @@ definitions:
     type: object
   channel.Attachment:
     properties:
-      asset_id:
-        type: string
       base64:
         description: data URL for agent delivery
         type: string
       caption:
+        type: string
+      content_hash:
         type: string
       duration_ms:
         type: integer
@@ -603,6 +603,10 @@ definitions:
         type: string
       snapshotter:
         type: string
+      source:
+        type: string
+      version:
+        type: integer
     type: object
   handlers.EmbeddingsInput:
     properties:
@@ -688,6 +692,11 @@ definitions:
         type: array
       snapshotter:
         type: string
+    type: object
+  handlers.LocalChannelMessageRequest:
+    properties:
+      message:
+        $ref: '#/definitions/channel.Message'
     type: object
   handlers.LoginRequest:
     properties:
@@ -784,14 +793,20 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      managed:
+        type: boolean
       name:
         type: string
       parent:
         type: string
       snapshotter:
         type: string
+      source:
+        type: string
       updated_at:
         type: string
+      version:
+        type: integer
     type: object
   handlers.listMyIdentitiesResponse:
     properties:
@@ -1108,28 +1123,18 @@ definitions:
     type: object
   message.MessageAsset:
     properties:
-      asset_id:
-        type: string
-      duration_ms:
-        type: integer
-      height:
-        type: integer
-      media_type:
+      content_hash:
         type: string
       mime:
         type: string
       ordinal:
         type: integer
-      original_name:
-        type: string
       role:
         type: string
       size_bytes:
         type: integer
       storage_key:
         type: string
-      width:
-        type: integer
     type: object
   models.AddRequest:
     properties:
@@ -1684,6 +1689,80 @@ paths:
       summary: Create bot user
       tags:
       - bots
+  /bots/{bot_id}/cli/messages:
+    post:
+      consumes:
+      - application/json
+      description: Post a user message (with optional attachments) through the local
+        channel pipeline.
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      - description: Message payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LocalChannelMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Send a message to a local channel
+      tags:
+      - local-channel
+  /bots/{bot_id}/cli/stream:
+    get:
+      description: Open a persistent SSE connection to receive real-time stream events
+        for the given bot.
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Subscribe to local channel events via SSE
+      tags:
+      - local-channel
   /bots/{bot_id}/container:
     delete:
       parameters:
@@ -3184,6 +3263,80 @@ paths:
       summary: Unified MCP tools gateway
       tags:
       - containerd
+  /bots/{bot_id}/web/messages:
+    post:
+      consumes:
+      - application/json
+      description: Post a user message (with optional attachments) through the local
+        channel pipeline.
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      - description: Message payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LocalChannelMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Send a message to a local channel
+      tags:
+      - local-channel
+  /bots/{bot_id}/web/stream:
+    get:
+      description: Open a persistent SSE connection to receive real-time stream events
+        for the given bot.
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Subscribe to local channel events via SSE
+      tags:
+      - local-channel
   /bots/{id}:
     delete:
       description: Delete a bot user (owner/admin only)
