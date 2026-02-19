@@ -152,82 +152,6 @@ export const createAgent = (
     }
   }
 
-  const prepareInputWithMCPImageBase64 = async (
-    input: AgentInput,
-  ): Promise<AgentInput> => {
-    if (!auth?.bearer || !identity.botId) {
-      return input
-    }
-    const url = `${auth.baseUrl.replace(/\/$/, '')}/bots/${identity.botId}/tools`
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream',
-      Authorization: `Bearer ${auth.bearer}`,
-    }
-    if (identity.channelIdentityId) {
-      headers['X-Memoh-Channel-Identity-Id'] = identity.channelIdentityId
-    }
-    if (identity.sessionToken) {
-      headers['X-Memoh-Session-Token'] = identity.sessionToken
-    }
-    if (identity.currentPlatform) {
-      headers['X-Memoh-Current-Platform'] = identity.currentPlatform
-    }
-    const attachments = await Promise.all(
-      input.attachments.map(async (attachment) => {
-        if (attachment.type !== 'image') {
-          return attachment
-        }
-        const image = attachment as ImageAttachment
-        if (typeof image.base64 === 'string' && image.base64.trim() !== '') {
-          return image
-        }
-        const path = String(image.path ?? '').trim()
-        if (!path) {
-          return image
-        }
-        const quotedPath = `'${path.replace(/'/g, '\'\\\'\'')}'`
-        const command = `base64 ${quotedPath} | tr -d '\\n'`
-        const body = JSON.stringify({
-          jsonrpc: '2.0',
-          id: `read-image-${quotedPath}`,
-          method: 'tools/call',
-          params: {
-            name: 'exec',
-            arguments: { command },
-          },
-        })
-        try {
-          const response = await fetch(url, { method: 'POST', headers, body })
-          if (!response.ok) {
-            return image
-          }
-          const payload = await response.json().catch(() => ({}))
-          const structured = payload?.result?.structuredContent
-          const execResult = (
-            structured && typeof structured === 'object' ? structured : null
-          ) as { stdout?: unknown; exit_code?: unknown } | null
-          const exitCode = Number(execResult?.exit_code ?? 1)
-          const stdout =
-            typeof execResult?.stdout === 'string'
-              ? execResult.stdout.trim()
-              : ''
-          if (exitCode !== 0 || stdout === '') {
-            return image
-          }
-          const mime = String(image.mime ?? '').trim() || 'image/png'
-          return {
-            ...image,
-            base64: `data:${mime};base64,${stdout}`,
-          }
-        } catch {
-          return image
-        }
-      }),
-    )
-    return { ...input, attachments }
-  }
-
   const generateSystemPrompt = async () => {
     const { identityContent, soulContent, toolsContent } =
       await loadSystemFiles()
@@ -335,7 +259,10 @@ export const createAgent = (
       ...messageAttachments,
     ])
     return {
-      messages: strippedMessages,
+      messages: [
+        userPrompt,
+        ...strippedMessages,
+      ],
       reasoning: reasoning.map((part) => part.text),
       usage,
       text: cleanedText,
@@ -590,7 +517,10 @@ export const createAgent = (
     )
     yield {
       type: 'agent_end',
-      messages: strippedMessages,
+      messages: [
+        userPrompt,
+        ...strippedMessages,
+      ],
       reasoning: result.reasoning,
       usage: result.usage!,
       skills: getEnabledSkills(),

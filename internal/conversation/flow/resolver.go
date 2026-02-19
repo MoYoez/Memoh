@@ -1127,22 +1127,7 @@ func (r *Resolver) persistUserMessage(ctx context.Context, req conversation.Chat
 }
 
 func (r *Resolver) storeRound(ctx context.Context, req conversation.ChatRequest, messages []conversation.ModelMessage, usage json.RawMessage) error {
-	fullRound := make([]conversation.ModelMessage, 0, len(messages)+1)
-	hasUserQuery := false
-	for _, m := range messages {
-		if m.Role == "user" && m.TextContent() == req.Query {
-			hasUserQuery = true
-			break
-		}
-	}
-	needUserInRound := !req.UserMessagePersisted && !hasUserQuery &&
-		(strings.TrimSpace(req.Query) != "" || len(req.Attachments) > 0)
-	if needUserInRound {
-		fullRound = append(fullRound, conversation.ModelMessage{
-			Role:    "user",
-			Content: conversation.NewTextContent(req.Query),
-		})
-	}
+	fullRound := make([]conversation.ModelMessage, 0, len(messages))
 	for _, m := range messages {
 		if req.UserMessagePersisted && m.Role == "user" && strings.TrimSpace(m.TextContent()) == strings.TrimSpace(req.Query) {
 			continue
