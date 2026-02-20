@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 
-export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-pnpm lint:fix || true
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+sh "$SCRIPT_DIR/check-large-files" || exit 1
+
+echo ""
+sh "$SCRIPT_DIR/check-pnpm" || exit 1
