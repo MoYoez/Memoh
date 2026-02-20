@@ -146,15 +146,26 @@ func normalizeTarget(raw string) string {
 	if strings.HasPrefix(value, "@") {
 		return value
 	}
-	isNumeric := true
-	for _, r := range value {
-		if r < '0' || r > '9' {
-			isNumeric = false
-			break
-		}
-	}
-	if isNumeric {
+	if isTelegramChatID(value) {
 		return value
 	}
 	return "@" + value
+}
+
+// isTelegramChatID returns true when s looks like a Telegram numeric chat ID,
+// which may be negative (e.g. supergroup IDs like -1002280927535).
+func isTelegramChatID(s string) bool {
+	digits := s
+	if strings.HasPrefix(digits, "-") {
+		digits = digits[1:]
+	}
+	if len(digits) == 0 {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
