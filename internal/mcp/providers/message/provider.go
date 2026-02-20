@@ -386,6 +386,11 @@ func (p *Executor) resolveAttachmentRef(ctx context.Context, botID, ref, attType
 		}
 	}
 
+	// Default name from the original path basename when not specified.
+	if name == "" {
+		name = filepath.Base(ref)
+	}
+
 	// Container media path — resolve via asset storage.
 	const mediaMarker = "/data/media/"
 	if idx := strings.Index(ref, mediaMarker); idx >= 0 && p.assetResolver != nil {

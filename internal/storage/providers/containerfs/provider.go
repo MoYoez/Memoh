@@ -121,6 +121,33 @@ func (p *Provider) OpenContainerFile(botID, containerPath string) (io.ReadCloser
 	return os.Open(hostPath)
 }
 
+// ListPrefix returns all keys under the given routing prefix.
+// prefix is expected to be of the form "<bot_id>/<hash_prefix>/<hash>" (without extension).
+func (p *Provider) ListPrefix(_ context.Context, prefix string) ([]string, error) {
+	botID, sub := splitRoutingKey(prefix)
+	if botID == "" || sub == "" {
+		return nil, nil
+	}
+	dir := filepath.Dir(filepath.Join(p.dataRoot, "bots", botID, "media", sub))
+	base := filepath.Base(sub)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
+	var keys []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, base) {
+			storageKey := filepath.Join(filepath.Dir(sub), name)
+			keys = append(keys, filepath.Join(botID, storageKey))
+		}
+	}
+	return keys, nil
+}
+
 // splitRoutingKey splits a routing key "<bot_id>/<storage_key>" into its parts.
 func splitRoutingKey(key string) (botID, storageKey string) {
 	idx := strings.IndexByte(key, filepath.Separator)

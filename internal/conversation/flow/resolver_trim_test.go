@@ -91,4 +91,3 @@ func TestTrimMessagesByTokens_KeepsToolWhenPaired(t *testing.T) {
 		t.Fatalf("unexpected role order: %q -> %q", trimmed[0].Role, trimmed[1].Role)
 	}
 }
-

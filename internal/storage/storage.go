@@ -24,3 +24,9 @@ type Provider interface {
 type ContainerFileOpener interface {
 	OpenContainerFile(botID, containerPath string) (io.ReadCloser, error)
 }
+
+// PrefixLister is an optional interface for providers that can list keys
+// sharing a common prefix (e.g. directory listing on a filesystem backend).
+type PrefixLister interface {
+	ListPrefix(ctx context.Context, prefix string) ([]string, error)
+}

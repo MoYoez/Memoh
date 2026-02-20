@@ -30,4 +30,7 @@ type IngestInput struct {
 	Reader io.Reader
 	// MaxBytes optionally overrides the default size limit.
 	MaxBytes int64
+	// OriginalExt preserves the source file extension (e.g. ".md") so it
+	// survives even when the MIME type is unknown / generic.
+	OriginalExt string
 }

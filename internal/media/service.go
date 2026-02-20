@@ -59,6 +59,9 @@ func (s *Service) Ingest(ctx context.Context, input IngestInput) (Asset, error) 
 
 	mime := coalesce(input.Mime, "application/octet-stream")
 	ext := extensionFromMime(mime)
+	if ext == ".bin" && input.OriginalExt != "" {
+		ext = input.OriginalExt
+	}
 	storageKey := path.Join(contentHash[:2], contentHash+ext)
 	routingKey := path.Join(input.BotID, storageKey)
 
@@ -157,16 +160,20 @@ func (s *Service) IngestContainerFile(ctx context.Context, botID, containerPath 
 		return Asset{}, fmt.Errorf("open container file: %w", err)
 	}
 	defer f.Close()
-	mime := mimeFromExtension(path.Ext(containerPath))
-	return s.Ingest(ctx, IngestInput{BotID: botID, Mime: mime, Reader: f})
+	ext := path.Ext(containerPath)
+	mime := mimeFromExtension(ext)
+	return s.Ingest(ctx, IngestInput{BotID: botID, Mime: mime, Reader: f, OriginalExt: ext})
 }
 
 // resolveByContentHash scans hash-prefix directory by extension to find the file.
+// It first tries known extensions (fast path), then falls back to a directory
+// listing if the provider supports it, so arbitrary file types are found.
 func (s *Service) resolveByContentHash(ctx context.Context, botID, contentHash string) (Asset, error) {
 	if strings.TrimSpace(contentHash) == "" || len(contentHash) < 2 {
 		return Asset{}, ErrAssetNotFound
 	}
 	prefix := contentHash[:2]
+
 	for _, ext := range knownExtensions {
 		storageKey := path.Join(prefix, contentHash+ext)
 		routingKey := path.Join(botID, storageKey)
@@ -177,7 +184,29 @@ func (s *Service) resolveByContentHash(ctx context.Context, botID, contentHash s
 		_ = rc.Close()
 		return deriveAssetFromKey(botID, storageKey), nil
 	}
+
+	if lister, ok := s.provider.(storage.PrefixLister); ok {
+		keyPrefix := path.Join(botID, prefix, contentHash)
+		keys, err := lister.ListPrefix(ctx, keyPrefix)
+		if err == nil {
+			for _, k := range keys {
+				_, storageKey := splitFirst(k, '/')
+				if storageKey != "" {
+					return deriveAssetFromKey(botID, storageKey), nil
+				}
+			}
+		}
+	}
+
 	return Asset{}, ErrAssetNotFound
+}
+
+func splitFirst(s string, sep byte) (string, string) {
+	i := strings.IndexByte(s, sep)
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], s[i+1:]
 }
 
 // deriveAssetFromKey builds an Asset from the storage key (hash_2char_prefix/hash.ext).
@@ -193,60 +222,67 @@ func deriveAssetFromKey(botID, storageKey string) Asset {
 	}
 }
 
-var knownExtensions = []string{".jpg", ".png", ".gif", ".webp", ".mp3", ".wav", ".ogg", ".mp4", ".webm", ".pdf", ".bin"}
+var extToMime = map[string]string{
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".png": "image/png", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+	".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".flac": "audio/flac", ".aac": "audio/aac",
+	".mp4": "video/mp4", ".webm": "video/webm", ".avi": "video/x-msvideo", ".mov": "video/quicktime",
+	".pdf": "application/pdf", ".zip": "application/zip", ".gz": "application/gzip",
+	".json": "application/json", ".xml": "application/xml", ".csv": "text/csv",
+	".txt": "text/plain", ".md": "text/markdown", ".log": "text/plain",
+	".html": "text/html", ".css": "text/css",
+	".js": "text/javascript", ".ts": "text/typescript",
+	".py": "text/x-python", ".go": "text/x-go", ".rs": "text/x-rust",
+	".c": "text/x-c", ".cpp": "text/x-c++", ".h": "text/x-c",
+	".java": "text/x-java", ".rb": "text/x-ruby", ".sh": "text/x-shellscript",
+	".yaml": "text/yaml", ".yml": "text/yaml", ".toml": "text/toml",
+	".sql": "text/x-sql", ".ini": "text/plain", ".conf": "text/plain",
+}
 
-func mimeFromExtension(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".wav":
-		return "audio/wav"
-	case ".ogg":
-		return "audio/ogg"
-	case ".mp4":
-		return "video/mp4"
-	case ".webm":
-		return "video/webm"
-	case ".pdf":
-		return "application/pdf"
-	default:
-		return "application/octet-stream"
+var mimeToExt = map[string]string{
+	"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+	"image/webp": ".webp", "image/svg+xml": ".svg",
+	"audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg",
+	"audio/flac": ".flac", "audio/aac": ".aac",
+	"video/mp4": ".mp4", "video/webm": ".webm", "video/x-msvideo": ".avi", "video/quicktime": ".mov",
+	"application/pdf": ".pdf", "application/zip": ".zip", "application/gzip": ".gz",
+	"application/json": ".json", "application/xml": ".xml",
+	"text/plain": ".txt", "text/markdown": ".md", "text/csv": ".csv",
+	"text/html": ".html", "text/css": ".css",
+	"text/javascript": ".js", "text/typescript": ".ts",
+	"text/x-python": ".py", "text/x-go": ".go", "text/x-rust": ".rs",
+	"text/x-c": ".c", "text/x-c++": ".cpp",
+	"text/x-java": ".java", "text/x-ruby": ".rb", "text/x-shellscript": ".sh",
+	"text/yaml": ".yaml", "text/toml": ".toml", "text/x-sql": ".sql",
+}
+
+var knownExtensions []string
+
+func init() {
+	seen := make(map[string]bool)
+	for ext := range extToMime {
+		if !seen[ext] {
+			knownExtensions = append(knownExtensions, ext)
+			seen[ext] = true
+		}
+	}
+	if !seen[".bin"] {
+		knownExtensions = append(knownExtensions, ".bin")
 	}
 }
 
-func extensionFromMime(mime string) string {
-	switch strings.ToLower(strings.TrimSpace(mime)) {
-	case "image/png":
-		return ".png"
-	case "image/jpeg", "image/jpg":
-		return ".jpg"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	case "audio/mpeg", "audio/mp3":
-		return ".mp3"
-	case "audio/wav":
-		return ".wav"
-	case "audio/ogg":
-		return ".ogg"
-	case "video/mp4":
-		return ".mp4"
-	case "video/webm":
-		return ".webm"
-	case "application/pdf":
-		return ".pdf"
-	default:
-		return ".bin"
+func mimeFromExtension(ext string) string {
+	if mime, ok := extToMime[strings.ToLower(ext)]; ok {
+		return mime
 	}
+	return "application/octet-stream"
+}
+
+func extensionFromMime(mime string) string {
+	if ext, ok := mimeToExt[strings.ToLower(strings.TrimSpace(mime))]; ok {
+		return ext
+	}
+	return ".bin"
 }
 
 func coalesce(values ...string) string {
