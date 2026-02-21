@@ -67,7 +67,7 @@ export interface AgentEndAction extends BaseAction {
   usages: (LanguageModelUsage | null)[]
 }
 
-export type AgentAction = 
+export type AgentStreamAction = 
   | AgentStartAction
   | ReasoningStartAction
   | ReasoningDeltaAction

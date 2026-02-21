@@ -12,15 +12,15 @@ import {
   AgentInput,
   AgentParams,
   AgentSkill,
+  AgentStreamAction,
   allActions,
   MCPConnection,
   Schedule,
 } from './types'
 import { ModelInput, hasInputModality } from './types/model'
 import { system, schedule, subagentSystem } from './prompts'
-import { AuthFetcher } from './index'
+import { AuthFetcher } from './types'
 import { createModel } from './model'
-import { AgentAction } from './types/action'
 import {
   extractAttachmentsFromText,
   stripAttachmentsFromMessages,
@@ -115,7 +115,8 @@ export const createAgent = (
       })
       const response = await fetch(url, { method: 'POST', headers, body })
       if (!response.ok) return ''
-      const data = await response.json().catch(() => ({}))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await response.json().catch(() => ({})) as any
       const structured =
         data?.result?.structuredContent ?? data?.result?.content?.[0]?.text
       if (typeof structured === 'string') {
@@ -360,7 +361,7 @@ export const createAgent = (
     return 'Model stream failed'
   }
 
-  async function* stream(input: AgentInput): AsyncGenerator<AgentAction> {
+  async function* stream(input: AgentInput): AsyncGenerator<AgentStreamAction> {
     const userPrompt = generateUserPrompt(input)
     const messages = [...input.messages, userPrompt]
     input.skills.forEach((skill) => enableSkill(skill))
