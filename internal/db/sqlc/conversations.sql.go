@@ -271,7 +271,7 @@ func (q *Queries) GetChatReadAccessByUser(ctx context.Context, arg GetChatReadAc
 const getChatSettings = `-- name: GetChatSettings :one
 SELECT
   b.id AS chat_id,
-  chat_models.model_id AS model_id,
+  chat_models.id AS model_id,
   b.updated_at
 FROM bots b
 LEFT JOIN models chat_models ON chat_models.id = b.chat_model_id
@@ -280,7 +280,7 @@ WHERE b.id = $1
 
 type GetChatSettingsRow struct {
 	ChatID    pgtype.UUID        `json:"chat_id"`
-	ModelID   pgtype.Text        `json:"model_id"`
+	ModelID   pgtype.UUID        `json:"model_id"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
@@ -590,7 +590,7 @@ WITH updated AS (
   SET display_name = $1,
       updated_at = now()
   WHERE bots.id = $2
-  RETURNING id, owner_user_id, type, display_name, avatar_url, is_active, status, max_context_load_time, max_context_tokens, language, allow_guest, max_inbox_items, chat_model_id, memory_model_id, embedding_model_id, search_provider_id, metadata, created_at, updated_at
+  RETURNING id, owner_user_id, type, display_name, avatar_url, is_active, status, max_context_load_time, max_context_tokens, language, allow_guest, reasoning_enabled, reasoning_effort, max_inbox_items, chat_model_id, memory_model_id, embedding_model_id, search_provider_id, metadata, created_at, updated_at
 )
 SELECT
   updated.id AS id,
@@ -645,41 +645,36 @@ func (q *Queries) UpdateChatTitle(ctx context.Context, arg UpdateChatTitleParams
 
 const upsertChatSettings = `-- name: UpsertChatSettings :one
 
-WITH resolved_model AS (
-  SELECT id
-  FROM models
-  WHERE model_id = NULLIF($1::text, '')
-  LIMIT 1
-),
+WITH
 updated AS (
   UPDATE bots
-  SET chat_model_id = COALESCE((SELECT id FROM resolved_model), bots.chat_model_id),
+  SET chat_model_id = COALESCE($1::uuid, bots.chat_model_id),
       updated_at = now()
   WHERE bots.id = $2
   RETURNING bots.id, bots.chat_model_id, bots.updated_at
 )
 SELECT
   updated.id AS chat_id,
-  chat_models.model_id AS model_id,
+  chat_models.id AS model_id,
   updated.updated_at
 FROM updated
 LEFT JOIN models chat_models ON chat_models.id = updated.chat_model_id
 `
 
 type UpsertChatSettingsParams struct {
-	ModelID pgtype.Text `json:"model_id"`
-	ID      pgtype.UUID `json:"id"`
+	ChatModelID pgtype.UUID `json:"chat_model_id"`
+	ID          pgtype.UUID `json:"id"`
 }
 
 type UpsertChatSettingsRow struct {
 	ChatID    pgtype.UUID        `json:"chat_id"`
-	ModelID   pgtype.Text        `json:"model_id"`
+	ModelID   pgtype.UUID        `json:"model_id"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 // chat_settings
 func (q *Queries) UpsertChatSettings(ctx context.Context, arg UpsertChatSettingsParams) (UpsertChatSettingsRow, error) {
-	row := q.db.QueryRow(ctx, upsertChatSettings, arg.ModelID, arg.ID)
+	row := q.db.QueryRow(ctx, upsertChatSettings, arg.ChatModelID, arg.ID)
 	var i UpsertChatSettingsRow
 	err := row.Scan(&i.ChatID, &i.ModelID, &i.UpdatedAt)
 	return i, err

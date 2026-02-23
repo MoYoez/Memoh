@@ -74,8 +74,7 @@ CREATE TABLE IF NOT EXISTS search_providers (
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT search_providers_name_unique UNIQUE (name),
-  CONSTRAINT search_providers_provider_check CHECK (provider IN ('brave'))
+  CONSTRAINT search_providers_name_unique UNIQUE (name)
 );
 
 CREATE TABLE IF NOT EXISTS models (
@@ -86,10 +85,11 @@ CREATE TABLE IF NOT EXISTS models (
   client_type TEXT,
   dimensions INTEGER,
   input_modalities TEXT[] NOT NULL DEFAULT ARRAY['text']::TEXT[],
+  supports_reasoning BOOLEAN NOT NULL DEFAULT false,
   type TEXT NOT NULL DEFAULT 'chat',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT models_model_id_unique UNIQUE (model_id),
+  CONSTRAINT models_provider_model_id_unique UNIQUE (llm_provider_id, model_id),
   CONSTRAINT models_type_check CHECK (type IN ('chat', 'embedding')),
   CONSTRAINT models_dimensions_check CHECK (type != 'embedding' OR dimensions IS NOT NULL),
   CONSTRAINT models_client_type_check CHECK (client_type IS NULL OR client_type IN ('openai-responses', 'openai-completions', 'anthropic-messages', 'google-generative-ai')),
@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS bots (
   max_context_tokens INTEGER NOT NULL DEFAULT 0,
   language TEXT NOT NULL DEFAULT 'auto',
   allow_guest BOOLEAN NOT NULL DEFAULT false,
+  reasoning_enabled BOOLEAN NOT NULL DEFAULT false,
+  reasoning_effort TEXT NOT NULL DEFAULT 'medium',
   max_inbox_items INTEGER NOT NULL DEFAULT 50,
   chat_model_id UUID REFERENCES models(id) ON DELETE SET NULL,
   memory_model_id UUID REFERENCES models(id) ON DELETE SET NULL,
@@ -130,7 +132,8 @@ CREATE TABLE IF NOT EXISTS bots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT bots_type_check CHECK (type IN ('personal', 'public')),
-  CONSTRAINT bots_status_check CHECK (status IN ('creating', 'ready', 'deleting'))
+  CONSTRAINT bots_status_check CHECK (status IN ('creating', 'ready', 'deleting')),
+  CONSTRAINT bots_reasoning_effort_check CHECK (reasoning_effort IN ('low', 'medium', 'high'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_bots_owner_user_id ON bots(owner_user_id);
@@ -346,6 +349,7 @@ CREATE TABLE IF NOT EXISTS subagents (
   messages JSONB NOT NULL DEFAULT '[]'::jsonb,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   skills JSONB NOT NULL DEFAULT '[]'::jsonb,
+  usage JSONB NOT NULL DEFAULT '{}'::jsonb,
   CONSTRAINT subagents_name_unique UNIQUE (bot_id, name)
 );
 
@@ -404,4 +408,3 @@ CREATE TABLE IF NOT EXISTS bot_inbox (
 
 CREATE INDEX IF NOT EXISTS idx_bot_inbox_bot_unread ON bot_inbox(bot_id, created_at DESC) WHERE is_read = FALSE;
 CREATE INDEX IF NOT EXISTS idx_bot_inbox_bot_created ON bot_inbox(bot_id, created_at DESC);
-

@@ -55,6 +55,7 @@
         v-model.number="form.max_context_load_time"
         type="number"
         :min="0"
+        :aria-label="$t('bots.settings.maxContextLoadTime')"
       />
     </div>
 
@@ -66,6 +67,7 @@
         type="number"
         :min="0"
         placeholder="0"
+        :aria-label="$t('bots.settings.maxContextTokens')"
       />
     </div>
 
@@ -75,8 +77,50 @@
       <Input
         v-model="form.language"
         type="text"
+        :aria-label="$t('bots.settings.language')"
       />
     </div>
+
+    <!-- Reasoning (only if chat model supports it) -->
+    <template v-if="chatModelSupportsReasoning">
+      <Separator />
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <Label>{{ $t('bots.settings.reasoningEnabled') }}</Label>
+          <Switch
+            :model-value="form.reasoning_enabled"
+            @update:model-value="(val) => form.reasoning_enabled = !!val"
+          />
+        </div>
+        <div
+          v-if="form.reasoning_enabled"
+          class="space-y-2"
+        >
+          <Label>{{ $t('bots.settings.reasoningEffort') }}</Label>
+          <Select
+            :model-value="form.reasoning_effort"
+            @update:model-value="(val) => form.reasoning_effort = val ?? 'medium'"
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="low">
+                  {{ $t('bots.settings.reasoningEffortLow') }}
+                </SelectItem>
+                <SelectItem value="medium">
+                  {{ $t('bots.settings.reasoningEffortMedium') }}
+                </SelectItem>
+                <SelectItem value="high">
+                  {{ $t('bots.settings.reasoningEffortHigh') }}
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </template>
 
     <!-- Allow Guest: only for public bot -->
     <template v-if="isPublicBot">
@@ -146,6 +190,12 @@ import {
   Button,
   Separator,
   Spinner,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@memoh/ui'
 import { reactive, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -158,6 +208,7 @@ import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
 import { getBotsByBotIdSettings, putBotsByBotIdSettings, deleteBotsById, getModels, getProviders, getSearchProviders } from '@memoh/sdk'
 import type { SettingsSettings } from '@memoh/sdk'
 import type { Ref } from 'vue'
+import { resolveApiErrorMessage } from '@/utils/api-error'
 
 const props = defineProps<{
   botId: string
@@ -233,6 +284,12 @@ const models = computed(() => modelData.value ?? [])
 const providers = computed(() => providerData.value ?? [])
 const searchProviders = computed(() => searchProviderData.value ?? [])
 
+const chatModelSupportsReasoning = computed(() => {
+  if (!form.chat_model_id) return false
+  const m = models.value.find((m) => m.id === form.chat_model_id)
+  return !!m?.supports_reasoning
+})
+
 // ---- Form ----
 const form = reactive<SettingsSettings>({
   chat_model_id: '',
@@ -243,9 +300,10 @@ const form = reactive<SettingsSettings>({
   max_context_tokens: 0,
   language: '',
   allow_guest: false,
+  reasoning_enabled: false,
+  reasoning_effort: 'medium',
 })
 
-// 同步服务端数据到表单
 watch(settings, (val) => {
   if (val) {
     form.chat_model_id = val.chat_model_id ?? ''
@@ -256,6 +314,8 @@ watch(settings, (val) => {
     form.max_context_tokens = val.max_context_tokens ?? 0
     form.language = val.language ?? ''
     form.allow_guest = val.allow_guest ?? false
+    form.reasoning_enabled = val.reasoning_enabled ?? false
+    form.reasoning_effort = val.reasoning_effort || 'medium'
   }
 }, { immediate: true })
 
@@ -270,6 +330,8 @@ const hasChanges = computed(() => {
     || form.max_context_load_time !== (s.max_context_load_time ?? 0)
     || form.max_context_tokens !== (s.max_context_tokens ?? 0)
     || form.language !== (s.language ?? '')
+    || form.reasoning_enabled !== (s.reasoning_enabled ?? false)
+    || form.reasoning_effort !== (s.reasoning_effort || 'medium')
   if (isPublicBot.value) {
     changed = changed || form.allow_guest !== (s.allow_guest ?? false)
   }
@@ -285,22 +347,13 @@ async function handleSave() {
   }
 }
 
-function resolveErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message
-  if (error && typeof error === 'object' && 'message' in error) {
-    const msg = (error as { message?: string }).message
-    if (msg && msg.trim()) return msg
-  }
-  return fallback
-}
-
 async function handleDeleteBot() {
   try {
     await deleteBot()
     toast.success(t('bots.deleteSuccess'))
     await router.push({ name: 'bots' })
   } catch (error) {
-    toast.error(resolveErrorMessage(error, t('bots.lifecycle.deleteFailed')))
+    toast.error(resolveApiErrorMessage(error, t('bots.lifecycle.deleteFailed')))
   }
 }
 </script>

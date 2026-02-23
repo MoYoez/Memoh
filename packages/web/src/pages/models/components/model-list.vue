@@ -16,11 +16,11 @@
     >
       <ModelItem
         v-for="model in models"
-        :key="model.model_id"
+        :key="model.id || `${model.llm_provider_id}:${model.model_id}`"
         :model="model"
         :delete-loading="deleteModelLoading"
         @edit="(model) => $emit('edit', model)"
-        @delete="(name) => $emit('delete', name)"
+        @delete="(id) => $emit('delete', id)"
       />
     </section>
 
@@ -61,6 +61,6 @@ defineProps<{
 
 defineEmits<{
   edit: [model: ModelsGetResponse]
-  delete: [name: string]
+  delete: [id: string]
 }>()
 </script>

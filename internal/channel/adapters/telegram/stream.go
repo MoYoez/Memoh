@@ -217,11 +217,29 @@ func (s *telegramOutboundStream) Push(ctx context.Context, event channel.StreamE
 	case channel.StreamEventStatus:
 		return nil
 	case channel.StreamEventToolCallStart:
-		if err := s.ensureStreamMessage(ctx, telegramStreamToolHintText); err != nil {
-			return err
+		s.mu.Lock()
+		bufText := strings.TrimSpace(s.buf.String())
+		hasMsg := s.streamMsgID != 0
+		s.mu.Unlock()
+		if hasMsg && bufText != "" {
+			_ = s.editStreamMessageFinal(ctx, bufText)
 		}
-		return s.editStreamMessageFinal(ctx, telegramStreamToolHintText)
+		s.mu.Lock()
+		s.streamMsgID = 0
+		s.streamChatID = 0
+		s.lastEdited = ""
+		s.lastEditedAt = time.Time{}
+		s.buf.Reset()
+		s.mu.Unlock()
+		return nil
 	case channel.StreamEventToolCallEnd:
+		s.mu.Lock()
+		s.streamMsgID = 0
+		s.streamChatID = 0
+		s.lastEdited = ""
+		s.lastEditedAt = time.Time{}
+		s.buf.Reset()
+		s.mu.Unlock()
 		return nil
 	case channel.StreamEventAttachment:
 		if len(event.Attachments) == 0 {
@@ -241,10 +259,12 @@ func (s *telegramOutboundStream) Push(ctx context.Context, event channel.StreamE
 			}
 		}
 		return nil
-	case channel.StreamEventProcessingFailed, channel.StreamEventAgentStart, channel.StreamEventAgentEnd, channel.StreamEventPhaseStart, channel.StreamEventPhaseEnd, channel.StreamEventProcessingStarted, channel.StreamEventProcessingCompleted:
+	case channel.StreamEventPhaseStart, channel.StreamEventPhaseEnd:
+		return nil
+	case channel.StreamEventProcessingFailed, channel.StreamEventAgentStart, channel.StreamEventAgentEnd, channel.StreamEventProcessingStarted, channel.StreamEventProcessingCompleted:
 		return nil
 	case channel.StreamEventDelta:
-		if event.Delta == "" {
+		if event.Delta == "" || event.Phase == channel.StreamPhaseReasoning {
 			return nil
 		}
 		s.mu.Lock()
@@ -271,12 +291,13 @@ func (s *telegramOutboundStream) Push(ctx context.Context, event channel.StreamE
 			return nil
 		}
 		msg := event.Final.Message
-		finalText := strings.TrimSpace(msg.PlainText())
 		s.mu.Lock()
-		if finalText == "" {
-			finalText = strings.TrimSpace(s.buf.String())
-		}
+		bufText := strings.TrimSpace(s.buf.String())
 		s.mu.Unlock()
+		finalText := bufText
+		if finalText == "" {
+			finalText = strings.TrimSpace(msg.PlainText())
+		}
 		// Convert markdown to Telegram HTML for the final message.
 		formatted, pm := formatTelegramOutput(finalText, msg.Format)
 		if pm != "" {

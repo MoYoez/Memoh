@@ -96,6 +96,12 @@ func (h *SettingsHandler) Upsert(c echo.Context) error {
 		if errors.Is(err, settings.ErrPersonalBotGuestAccessUnsupported) {
 			return echo.NewHTTPError(http.StatusBadRequest, "personal bot does not support guest access")
 		}
+		if errors.Is(err, settings.ErrInvalidModelRef) {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		if errors.Is(err, settings.ErrModelIDAmbiguous) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id is duplicated across providers; select by model UUID")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)

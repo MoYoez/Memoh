@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/memohai/memoh/internal/db"
@@ -20,6 +21,8 @@ type Service struct {
 }
 
 var ErrPersonalBotGuestAccessUnsupported = errors.New("personal bots do not support guest access")
+var ErrModelIDAmbiguous = errors.New("model_id is ambiguous across providers")
+var ErrInvalidModelRef = errors.New("invalid model reference")
 
 func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	return &Service{
@@ -54,7 +57,7 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 	}
 	isPersonalBot := strings.EqualFold(strings.TrimSpace(botRow.Type), "personal")
 
-	current := normalizeBotSetting(botRow.MaxContextLoadTime, botRow.MaxContextTokens, botRow.MaxInboxItems, botRow.Language, botRow.AllowGuest)
+	current := normalizeBotSetting(botRow.MaxContextLoadTime, botRow.MaxContextTokens, botRow.MaxInboxItems, botRow.Language, botRow.AllowGuest, botRow.ReasoningEnabled, botRow.ReasoningEffort)
 	if req.MaxContextLoadTime != nil && *req.MaxContextLoadTime > 0 {
 		current.MaxContextLoadTime = *req.MaxContextLoadTime
 	}
@@ -74,6 +77,12 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 		current.AllowGuest = false
 	} else if req.AllowGuest != nil {
 		current.AllowGuest = *req.AllowGuest
+	}
+	if req.ReasoningEnabled != nil {
+		current.ReasoningEnabled = *req.ReasoningEnabled
+	}
+	if req.ReasoningEffort != nil && isValidReasoningEffort(*req.ReasoningEffort) {
+		current.ReasoningEffort = *req.ReasoningEffort
 	}
 
 	chatModelUUID := pgtype.UUID{}
@@ -116,6 +125,8 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 		MaxInboxItems:      int32(current.MaxInboxItems),
 		Language:           current.Language,
 		AllowGuest:         current.AllowGuest,
+		ReasoningEnabled:   current.ReasoningEnabled,
+		ReasoningEffort:    current.ReasoningEffort,
 		ChatModelID:        chatModelUUID,
 		MemoryModelID:      memoryModelUUID,
 		EmbeddingModelID:   embeddingModelUUID,
@@ -138,13 +149,15 @@ func (s *Service) Delete(ctx context.Context, botID string) error {
 	return s.queries.DeleteSettingsByBotID(ctx, pgID)
 }
 
-func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxInboxItems int32, language string, allowGuest bool) Settings {
+func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxInboxItems int32, language string, allowGuest bool, reasoningEnabled bool, reasoningEffort string) Settings {
 	settings := Settings{
 		MaxContextLoadTime: int(maxContextLoadTime),
 		MaxContextTokens:   int(maxContextTokens),
 		MaxInboxItems:      int(maxInboxItems),
 		Language:           strings.TrimSpace(language),
 		AllowGuest:         allowGuest,
+		ReasoningEnabled:   reasoningEnabled,
+		ReasoningEffort:    strings.TrimSpace(reasoningEffort),
 	}
 	if settings.MaxContextLoadTime <= 0 {
 		settings.MaxContextLoadTime = DefaultMaxContextLoadTime
@@ -158,7 +171,19 @@ func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxIn
 	if settings.Language == "" {
 		settings.Language = DefaultLanguage
 	}
+	if !isValidReasoningEffort(settings.ReasoningEffort) {
+		settings.ReasoningEffort = DefaultReasoningEffort
+	}
 	return settings
+}
+
+func isValidReasoningEffort(effort string) bool {
+	switch effort {
+	case "low", "medium", "high":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeBotSettingsReadRow(row sqlc.GetSettingsByBotIDRow) Settings {
@@ -168,6 +193,8 @@ func normalizeBotSettingsReadRow(row sqlc.GetSettingsByBotIDRow) Settings {
 		row.MaxInboxItems,
 		row.Language,
 		row.AllowGuest,
+		row.ReasoningEnabled,
+		row.ReasoningEffort,
 		row.ChatModelID,
 		row.MemoryModelID,
 		row.EmbeddingModelID,
@@ -182,6 +209,8 @@ func normalizeBotSettingsWriteRow(row sqlc.UpsertBotSettingsRow) Settings {
 		row.MaxInboxItems,
 		row.Language,
 		row.AllowGuest,
+		row.ReasoningEnabled,
+		row.ReasoningEffort,
 		row.ChatModelID,
 		row.MemoryModelID,
 		row.EmbeddingModelID,
@@ -195,15 +224,23 @@ func normalizeBotSettingsFields(
 	maxInboxItems int32,
 	language string,
 	allowGuest bool,
-	chatModelID pgtype.Text,
-	memoryModelID pgtype.Text,
-	embeddingModelID pgtype.Text,
+	reasoningEnabled bool,
+	reasoningEffort string,
+	chatModelID pgtype.UUID,
+	memoryModelID pgtype.UUID,
+	embeddingModelID pgtype.UUID,
 	searchProviderID pgtype.UUID,
 ) Settings {
-	settings := normalizeBotSetting(maxContextLoadTime, maxContextTokens, maxInboxItems, language, allowGuest)
-	settings.ChatModelID = strings.TrimSpace(chatModelID.String)
-	settings.MemoryModelID = strings.TrimSpace(memoryModelID.String)
-	settings.EmbeddingModelID = strings.TrimSpace(embeddingModelID.String)
+	settings := normalizeBotSetting(maxContextLoadTime, maxContextTokens, maxInboxItems, language, allowGuest, reasoningEnabled, reasoningEffort)
+	if chatModelID.Valid {
+		settings.ChatModelID = uuid.UUID(chatModelID.Bytes).String()
+	}
+	if memoryModelID.Valid {
+		settings.MemoryModelID = uuid.UUID(memoryModelID.Bytes).String()
+	}
+	if embeddingModelID.Valid {
+		settings.EmbeddingModelID = uuid.UUID(embeddingModelID.Bytes).String()
+	}
 	if searchProviderID.Valid {
 		settings.SearchProviderID = uuid.UUID(searchProviderID.Bytes).String()
 	}
@@ -211,12 +248,29 @@ func normalizeBotSettingsFields(
 }
 
 func (s *Service) resolveModelUUID(ctx context.Context, modelID string) (pgtype.UUID, error) {
-	if strings.TrimSpace(modelID) == "" {
-		return pgtype.UUID{}, fmt.Errorf("model_id is required")
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return pgtype.UUID{}, fmt.Errorf("%w: model_id is required", ErrInvalidModelRef)
 	}
-	row, err := s.queries.GetModelByModelID(ctx, modelID)
+
+	// Preferred path: when caller already passes the model UUID.
+	if parsed, err := db.ParseUUID(modelID); err == nil {
+		if _, err := s.queries.GetModelByID(ctx, parsed); err == nil {
+			return parsed, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return pgtype.UUID{}, err
+		}
+	}
+
+	rows, err := s.queries.ListModelsByModelID(ctx, modelID)
 	if err != nil {
 		return pgtype.UUID{}, err
 	}
-	return row.ID, nil
+	if len(rows) == 0 {
+		return pgtype.UUID{}, fmt.Errorf("%w: model not found: %s", ErrInvalidModelRef, modelID)
+	}
+	if len(rows) > 1 {
+		return pgtype.UUID{}, fmt.Errorf("%w: %s", ErrModelIDAmbiguous, modelID)
+	}
+	return rows[0].ID, nil
 }

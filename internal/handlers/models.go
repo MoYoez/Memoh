@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 
 	"github.com/memohai/memoh/internal/models"
@@ -52,6 +54,9 @@ func (h *ModelsHandler) Create(c echo.Context) error {
 
 	resp, err := h.service.Create(c.Request().Context(), req)
 	if err != nil {
+		if errors.Is(err, models.ErrModelIDAlreadyExists) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id already exists under the selected provider")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, resp)
@@ -134,6 +139,12 @@ func (h *ModelsHandler) GetByModelID(c echo.Context) error {
 
 	resp, err := h.service.GetByModelID(c.Request().Context(), modelID)
 	if err != nil {
+		if errors.Is(err, models.ErrModelIDAmbiguous) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id is duplicated across providers; use /models/{id} instead")
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		}
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)
@@ -163,6 +174,9 @@ func (h *ModelsHandler) UpdateByID(c echo.Context) error {
 
 	resp, err := h.service.UpdateByID(c.Request().Context(), id, req)
 	if err != nil {
+		if errors.Is(err, models.ErrModelIDAlreadyExists) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id already exists under the selected provider")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)
@@ -197,6 +211,15 @@ func (h *ModelsHandler) UpdateByModelID(c echo.Context) error {
 
 	resp, err := h.service.UpdateByModelID(c.Request().Context(), modelID, req)
 	if err != nil {
+		if errors.Is(err, models.ErrModelIDAlreadyExists) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id already exists under the selected provider")
+		}
+		if errors.Is(err, models.ErrModelIDAmbiguous) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id is duplicated across providers; use /models/{id} instead")
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)
@@ -246,6 +269,12 @@ func (h *ModelsHandler) DeleteByModelID(c echo.Context) error {
 	}
 
 	if err := h.service.DeleteByModelID(c.Request().Context(), modelID); err != nil {
+		if errors.Is(err, models.ErrModelIDAmbiguous) {
+			return echo.NewHTTPError(http.StatusConflict, "model_id is duplicated across providers; use /models/{id} instead")
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)

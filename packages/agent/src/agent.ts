@@ -17,7 +17,7 @@ import {
   MCPConnection,
   Schedule,
 } from './types'
-import { ModelInput, hasInputModality } from './types/model'
+import { ClientType, ModelConfig, ModelInput, hasInputModality } from './types/model'
 import { system, schedule, subagentSystem } from './prompts'
 import { AuthFetcher } from './types'
 import { createModel } from './model'
@@ -31,6 +31,26 @@ import type { GatewayInputAttachment } from './types/attachment'
 import { getMCPTools } from './tools/mcp'
 import { getTools } from './tools'
 import { buildIdentityHeaders } from './utils/headers'
+import { createFS } from './utils'
+
+const ANTHROPIC_BUDGET: Record<string, number> = { low: 5000, medium: 16000, high: 50000 }
+const GOOGLE_BUDGET: Record<string, number> = { low: 5000, medium: 16000, high: 50000 }
+
+const buildProviderOptions = (config: ModelConfig): Record<string, Record<string, unknown>> | undefined => {
+  if (!config.reasoning?.enabled) return undefined
+  const effort = config.reasoning.effort ?? 'medium'
+  switch (config.clientType) {
+    case ClientType.AnthropicMessages:
+      return { anthropic: { thinking: { type: 'enabled' as const, budgetTokens: ANTHROPIC_BUDGET[effort] } } }
+    case ClientType.OpenAIResponses:
+    case ClientType.OpenAICompletions:
+      return { openai: { reasoningEffort: effort } }
+    case ClientType.GoogleGenerativeAI:
+      return { google: { thinkingConfig: { thinkingBudget: GOOGLE_BUDGET[effort] } } }
+    default:
+      return undefined
+  }
+}
 
 const buildStepUsages = (
   steps: { usage: LanguageModelUsage; response: { messages: unknown[] } }[],
@@ -76,7 +96,10 @@ export const createAgent = (
   fetch: AuthFetcher,
 ) => {
   const model = createModel(modelConfig)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const providerOptions = buildProviderOptions(modelConfig) as any
   const enabledSkills: AgentSkill[] = []
+  const fs = createFS({ fetch, botId: identity.botId })
 
   const enableSkill = (skill: string) => {
     const agentSkill = skills.find((s) => s.name === skill)
@@ -90,58 +113,15 @@ export const createAgent = (
   }
 
   const loadSystemFiles = async () => {
-    if (!auth?.bearer || !identity.botId) {
-      return {
-        identityContent: '',
-        soulContent: '',
-        toolsContent: '',
-      }
-    }
-    const readViaMCP = async (path: string): Promise<string> => {
-      const url = `${auth.baseUrl.replace(/\/$/, '')}/bots/${identity.botId}/tools`
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        Authorization: `Bearer ${auth.bearer}`,
-      }
-      if (identity.channelIdentityId) {
-        headers['X-Memoh-Channel-Identity-Id'] = identity.channelIdentityId
-      }
-      const body = JSON.stringify({
-        jsonrpc: '2.0',
-        id: `read-${path}`,
-        method: 'tools/call',
-        params: { name: 'read', arguments: { path } },
-      })
-      const response = await fetch(url, { method: 'POST', headers, body })
-      if (!response.ok) return ''
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = await response.json().catch(() => ({})) as any
-      const structured =
-        data?.result?.structuredContent ?? data?.result?.content?.[0]?.text
-      if (typeof structured === 'string') {
-        try {
-          const parsed = JSON.parse(structured)
-          return typeof parsed?.content === 'string' ? parsed.content : ''
-        } catch {
-          return structured
-        }
-      }
-      if (typeof structured === 'object' && structured?.content) {
-        return typeof structured.content === 'string' ? structured.content : ''
-      }
-      return ''
-    }
     const [identityContent, soulContent, toolsContent] = await Promise.all([
-      readViaMCP('IDENTITY.md'),
-      readViaMCP('SOUL.md'),
-      readViaMCP('TOOLS.md'),
-    ])
-    return {
-      identityContent,
-      soulContent,
-      toolsContent,
-    }
+      fs.readText('/data/IDENTITY.md'),
+      fs.readText('/data/SOUL.md'),
+      fs.readText('/data/TOOLS.md'),
+    ]).catch((error) => {
+      console.error(error)
+      return ['', '', '']
+    })
+    return { identityContent, soulContent, toolsContent }
   }
 
   const generateSystemPrompt = async () => {
@@ -222,6 +202,7 @@ export const createAgent = (
       model,
       messages,
       system: systemPrompt,
+      ...(providerOptions && { providerOptions }),
       stopWhen: stepCountIs(Infinity),
       prepareStep: () => {
         return {
@@ -279,6 +260,7 @@ export const createAgent = (
       model,
       messages,
       system: generateSubagentSystemPrompt(),
+      ...(providerOptions && { providerOptions }),
       stopWhen: stepCountIs(Infinity),
       prepareStep: () => {
         return {
@@ -322,6 +304,7 @@ export const createAgent = (
       model,
       messages,
       system: await generateSystemPrompt(),
+      ...(providerOptions && { providerOptions }),
       stopWhen: stepCountIs(Infinity),
       onFinish: async () => {
         await close()
@@ -384,6 +367,7 @@ export const createAgent = (
         model,
         messages,
         system: systemPrompt,
+        ...(providerOptions && { providerOptions }),
         stopWhen: stepCountIs(Infinity),
         prepareStep: () => {
           return {

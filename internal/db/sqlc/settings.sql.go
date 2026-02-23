@@ -18,6 +18,8 @@ SET max_context_load_time = 1440,
     max_inbox_items = 50,
     language = 'auto',
     allow_guest = false,
+    reasoning_enabled = false,
+    reasoning_effort = 'medium',
     chat_model_id = NULL,
     memory_model_id = NULL,
     embedding_model_id = NULL,
@@ -39,9 +41,11 @@ SELECT
   bots.max_inbox_items,
   bots.language,
   bots.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  bots.reasoning_enabled,
+  bots.reasoning_effort,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM bots
 LEFT JOIN models AS chat_models ON chat_models.id = bots.chat_model_id
@@ -58,9 +62,11 @@ type GetSettingsByBotIDRow struct {
 	MaxInboxItems      int32       `json:"max_inbox_items"`
 	Language           string      `json:"language"`
 	AllowGuest         bool        `json:"allow_guest"`
-	ChatModelID        pgtype.Text `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text `json:"embedding_model_id"`
+	ReasoningEnabled   bool        `json:"reasoning_enabled"`
+	ReasoningEffort    string      `json:"reasoning_effort"`
+	ChatModelID        pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID      pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.UUID `json:"embedding_model_id"`
 	SearchProviderID   pgtype.UUID `json:"search_provider_id"`
 }
 
@@ -74,6 +80,8 @@ func (q *Queries) GetSettingsByBotID(ctx context.Context, id pgtype.UUID) (GetSe
 		&i.MaxInboxItems,
 		&i.Language,
 		&i.AllowGuest,
+		&i.ReasoningEnabled,
+		&i.ReasoningEffort,
 		&i.ChatModelID,
 		&i.MemoryModelID,
 		&i.EmbeddingModelID,
@@ -90,13 +98,15 @@ WITH updated AS (
       max_inbox_items = $3,
       language = $4,
       allow_guest = $5,
-      chat_model_id = COALESCE($6::uuid, bots.chat_model_id),
-      memory_model_id = COALESCE($7::uuid, bots.memory_model_id),
-      embedding_model_id = COALESCE($8::uuid, bots.embedding_model_id),
-      search_provider_id = COALESCE($9::uuid, bots.search_provider_id),
+      reasoning_enabled = $6,
+      reasoning_effort = $7,
+      chat_model_id = COALESCE($8::uuid, bots.chat_model_id),
+      memory_model_id = COALESCE($9::uuid, bots.memory_model_id),
+      embedding_model_id = COALESCE($10::uuid, bots.embedding_model_id),
+      search_provider_id = COALESCE($11::uuid, bots.search_provider_id),
       updated_at = now()
-  WHERE bots.id = $10
-  RETURNING bots.id, bots.max_context_load_time, bots.max_context_tokens, bots.max_inbox_items, bots.language, bots.allow_guest, bots.chat_model_id, bots.memory_model_id, bots.embedding_model_id, bots.search_provider_id
+  WHERE bots.id = $12
+  RETURNING bots.id, bots.max_context_load_time, bots.max_context_tokens, bots.max_inbox_items, bots.language, bots.allow_guest, bots.reasoning_enabled, bots.reasoning_effort, bots.chat_model_id, bots.memory_model_id, bots.embedding_model_id, bots.search_provider_id
 )
 SELECT
   updated.id AS bot_id,
@@ -105,9 +115,11 @@ SELECT
   updated.max_inbox_items,
   updated.language,
   updated.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  updated.reasoning_enabled,
+  updated.reasoning_effort,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM updated
 LEFT JOIN models AS chat_models ON chat_models.id = updated.chat_model_id
@@ -122,6 +134,8 @@ type UpsertBotSettingsParams struct {
 	MaxInboxItems      int32       `json:"max_inbox_items"`
 	Language           string      `json:"language"`
 	AllowGuest         bool        `json:"allow_guest"`
+	ReasoningEnabled   bool        `json:"reasoning_enabled"`
+	ReasoningEffort    string      `json:"reasoning_effort"`
 	ChatModelID        pgtype.UUID `json:"chat_model_id"`
 	MemoryModelID      pgtype.UUID `json:"memory_model_id"`
 	EmbeddingModelID   pgtype.UUID `json:"embedding_model_id"`
@@ -136,9 +150,11 @@ type UpsertBotSettingsRow struct {
 	MaxInboxItems      int32       `json:"max_inbox_items"`
 	Language           string      `json:"language"`
 	AllowGuest         bool        `json:"allow_guest"`
-	ChatModelID        pgtype.Text `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text `json:"embedding_model_id"`
+	ReasoningEnabled   bool        `json:"reasoning_enabled"`
+	ReasoningEffort    string      `json:"reasoning_effort"`
+	ChatModelID        pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID      pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.UUID `json:"embedding_model_id"`
 	SearchProviderID   pgtype.UUID `json:"search_provider_id"`
 }
 
@@ -149,6 +165,8 @@ func (q *Queries) UpsertBotSettings(ctx context.Context, arg UpsertBotSettingsPa
 		arg.MaxInboxItems,
 		arg.Language,
 		arg.AllowGuest,
+		arg.ReasoningEnabled,
+		arg.ReasoningEffort,
 		arg.ChatModelID,
 		arg.MemoryModelID,
 		arg.EmbeddingModelID,
@@ -163,6 +181,8 @@ func (q *Queries) UpsertBotSettings(ctx context.Context, arg UpsertBotSettingsPa
 		&i.MaxInboxItems,
 		&i.Language,
 		&i.AllowGuest,
+		&i.ReasoningEnabled,
+		&i.ReasoningEffort,
 		&i.ChatModelID,
 		&i.MemoryModelID,
 		&i.EmbeddingModelID,

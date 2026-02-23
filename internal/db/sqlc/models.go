@@ -20,6 +20,8 @@ type Bot struct {
 	MaxContextTokens   int32              `json:"max_context_tokens"`
 	Language           string             `json:"language"`
 	AllowGuest         bool               `json:"allow_guest"`
+	ReasoningEnabled   bool               `json:"reasoning_enabled"`
+	ReasoningEffort    string             `json:"reasoning_effort"`
 	MaxInboxItems      int32              `json:"max_inbox_items"`
 	ChatModelID        pgtype.UUID        `json:"chat_model_id"`
 	MemoryModelID      pgtype.UUID        `json:"memory_model_id"`
@@ -215,16 +217,17 @@ type MediaAsset struct {
 }
 
 type Model struct {
-	ID              pgtype.UUID        `json:"id"`
-	ModelID         string             `json:"model_id"`
-	Name            pgtype.Text        `json:"name"`
-	LlmProviderID   pgtype.UUID        `json:"llm_provider_id"`
-	ClientType      pgtype.Text        `json:"client_type"`
-	Dimensions      pgtype.Int4        `json:"dimensions"`
-	InputModalities []string           `json:"input_modalities"`
-	Type            string             `json:"type"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID                pgtype.UUID        `json:"id"`
+	ModelID           string             `json:"model_id"`
+	Name              pgtype.Text        `json:"name"`
+	LlmProviderID     pgtype.UUID        `json:"llm_provider_id"`
+	ClientType        pgtype.Text        `json:"client_type"`
+	Dimensions        pgtype.Int4        `json:"dimensions"`
+	InputModalities   []string           `json:"input_modalities"`
+	SupportsReasoning bool               `json:"supports_reasoning"`
+	Type              string             `json:"type"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ModelVariant struct {
@@ -291,6 +294,7 @@ type Subagent struct {
 	Messages    []byte             `json:"messages"`
 	Metadata    []byte             `json:"metadata"`
 	Skills      []byte             `json:"skills"`
+	Usage       []byte             `json:"usage"`
 }
 
 type User struct {

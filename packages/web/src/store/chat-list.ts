@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
+import { useRetryingStream } from '@/composables/useRetryingStream'
 import { useUserStore } from '@/store/user'
 import {
   createChat,
@@ -15,6 +16,7 @@ import {
   extractMessageText,
   extractToolCalls,
   extractAllToolResults,
+  extractMessageReasoning,
   sendLocalChannelMessage,
   streamLocalChannel,
   streamMessageEvents,
@@ -87,12 +89,10 @@ export const useChatStore = defineStore('chat', () => {
   const bots = ref<Bot[]>([])
 
   let abortFn: (() => void) | null = null
-  let messageEventsController: AbortController | null = null
-  let messageEventsLoopVersion = 0
   let messageEventsSince = ''
-  let localStreamController: AbortController | null = null
-  let localStreamLoopVersion = 0
   let pendingAssistantStream: PendingAssistantStream | null = null
+  const messageEventsStream = useRetryingStream()
+  const localStream = useRetryingStream()
 
   const participantChats = computed(() =>
     chats.value.filter((c) => (c.access_mode ?? 'participant') === 'participant'),
@@ -126,8 +126,6 @@ export const useChatStore = defineStore('chat', () => {
   const isPendingBot = (bot: Bot | null | undefined) =>
     bot?.status === 'creating' || bot?.status === 'deleting'
 
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
-
   // ---- Message adapter: convert server Message to ChatMessage ----
 
   function mediaTypeFromMime(mime: string): string {
@@ -156,9 +154,14 @@ export const useChatStore = defineStore('chat', () => {
 
     const text = extractMessageText(raw)
     const assetBlocks = buildAssetBlocks(raw)
-    if (!text && assetBlocks.length === 0) return null
+    const reasoningTexts = extractMessageReasoning(raw)
+
+    if (!text && assetBlocks.length === 0 && reasoningTexts.length === 0) return null
 
     const blocks: ContentBlock[] = []
+    for (const r of reasoningTexts) {
+      blocks.push({ type: 'thinking', content: r, done: true })
+    }
     if (text) blocks.push({ type: 'text', content: text })
     blocks.push(...assetBlocks)
 
@@ -229,6 +232,7 @@ export const useChatStore = defineStore('chat', () => {
       if (raw.role === 'assistant') {
         const toolCalls = extractToolCalls(raw)
         const text = extractMessageText(raw)
+        const reasoningTexts = extractMessageReasoning(raw)
 
         if (toolCalls.length > 0) {
           if (!pendingAssistant) {
@@ -242,6 +246,9 @@ export const useChatStore = defineStore('chat', () => {
               streaming: false,
               ...(channelTag && { platform: channelTag }),
             }
+          }
+          for (const r of reasoningTexts) {
+            pendingAssistant.blocks.push({ type: 'thinking', content: r, done: true })
           }
           if (text) {
             pendingAssistant.blocks.push({ type: 'text', content: text })
@@ -261,8 +268,10 @@ export const useChatStore = defineStore('chat', () => {
           continue
         }
 
-        // Assistant message without tool_calls
         if (pendingAssistant && text) {
+          for (const r of reasoningTexts) {
+            pendingAssistant.blocks.push({ type: 'thinking', content: r, done: true })
+          }
           pendingAssistant.blocks.push({ type: 'text', content: text })
           flushPending()
           continue
@@ -330,19 +339,11 @@ export const useChatStore = defineStore('chat', () => {
   // ---- SSE real-time events ----
 
   function stopMessageEvents() {
-    messageEventsLoopVersion += 1
-    if (messageEventsController) {
-      messageEventsController.abort()
-      messageEventsController = null
-    }
+    messageEventsStream.stop()
   }
 
   function stopLocalStream() {
-    localStreamLoopVersion += 1
-    if (localStreamController) {
-      localStreamController.abort()
-      localStreamController = null
-    }
+    localStream.stop()
   }
 
   function pushAssistantBlock(session: PendingAssistantStream, block: ContentBlock): number {
@@ -353,10 +354,20 @@ export const useChatStore = defineStore('chat', () => {
   function appendAssistantError(session: PendingAssistantStream, errorMessage: string) {
     const message = errorMessage.trim()
     if (!message) return
+    ensureAssistantTextBlock(session).content += `\n\n**Error:** ${message}`
+  }
+
+  function ensureAssistantTextBlock(session: PendingAssistantStream): TextBlock {
     if (session.textBlockIdx < 0 || session.assistantMsg.blocks[session.textBlockIdx]?.type !== 'text') {
       session.textBlockIdx = pushAssistantBlock(session, { type: 'text', content: '' })
     }
-    ;(session.assistantMsg.blocks[session.textBlockIdx] as TextBlock).content += `\n\n**Error:** ${message}`
+    return session.assistantMsg.blocks[session.textBlockIdx] as TextBlock
+  }
+
+  function resolveStreamErrorMessage(event: StreamEvent, fallback: string): string {
+    if (typeof event.message === 'string') return event.message
+    if (typeof event.error === 'string') return event.error
+    return fallback
   }
 
   function resolvePendingAssistantStream() {
@@ -463,10 +474,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       case 'text_delta':
         if (typeof event.delta === 'string') {
-          if (session.textBlockIdx < 0 || session.assistantMsg.blocks[session.textBlockIdx]?.type !== 'text') {
-            session.textBlockIdx = pushAssistantBlock(session, { type: 'text', content: '' })
-          }
-          ;(session.assistantMsg.blocks[session.textBlockIdx] as TextBlock).content += event.delta
+          ensureAssistantTextBlock(session).content += event.delta
         }
         break
       case 'text_end':
@@ -485,7 +493,12 @@ export const useChatStore = defineStore('chat', () => {
         break
       case 'reasoning_end':
         if (session.thinkingBlockIdx >= 0 && session.assistantMsg.blocks[session.thinkingBlockIdx]?.type === 'thinking') {
-          ;(session.assistantMsg.blocks[session.thinkingBlockIdx] as ThinkingBlock).done = true
+          const tb = session.assistantMsg.blocks[session.thinkingBlockIdx] as ThinkingBlock
+          if (tb.content.trim() === '') {
+            session.assistantMsg.blocks.splice(session.thinkingBlockIdx, 1)
+          } else {
+            tb.done = true
+          }
         }
         session.thinkingBlockIdx = -1
         break
@@ -553,21 +566,13 @@ export const useChatStore = defineStore('chat', () => {
         resolvePendingAssistantStream()
         break
       case 'processing_failed': {
-        const message = typeof event.message === 'string'
-          ? event.message
-          : typeof event.error === 'string'
-            ? event.error
-            : 'processing failed'
+        const message = resolveStreamErrorMessage(event, 'processing failed')
         appendAssistantError(session, message)
         rejectPendingAssistantStream(new Error(message))
         break
       }
       case 'error': {
-        const message = typeof event.message === 'string'
-          ? event.message
-          : typeof event.error === 'string'
-            ? event.error
-            : 'stream error'
+        const message = resolveStreamErrorMessage(event, 'stream error')
         appendAssistantError(session, message)
         rejectPendingAssistantStream(new Error(message))
         break
@@ -577,10 +582,7 @@ export const useChatStore = defineStore('chat', () => {
       default: {
         const fallback = extractFallbackText(event)
         if (fallback) {
-          if (session.textBlockIdx < 0 || session.assistantMsg.blocks[session.textBlockIdx]?.type !== 'text') {
-            session.textBlockIdx = pushAssistantBlock(session, { type: 'text', content: '' })
-          }
-          ;(session.assistantMsg.blocks[session.textBlockIdx] as TextBlock).content += fallback
+          ensureAssistantTextBlock(session).content += fallback
         }
         break
       }
@@ -592,27 +594,9 @@ export const useChatStore = defineStore('chat', () => {
     stopLocalStream()
     if (!bid) return
 
-    const controller = new AbortController()
-    localStreamController = controller
-    const version = localStreamLoopVersion
-
-    const run = async () => {
-      let delay = 1000
-      while (!controller.signal.aborted && localStreamLoopVersion === version) {
-        try {
-          await streamLocalChannel(bid, controller.signal, handleLocalStreamEvent)
-          delay = 1000
-          if (!controller.signal.aborted && localStreamLoopVersion === version) {
-            await sleep(300)
-          }
-        } catch {
-          if (controller.signal.aborted || localStreamLoopVersion !== version) return
-          await sleep(delay)
-          delay = Math.min(delay * 2, 5000)
-        }
-      }
-    }
-    void run()
+    localStream.start(async (signal) => {
+      await streamLocalChannel(bid, signal, handleLocalStreamEvent)
+    })
   }
 
   function updateSince(createdAt?: string) {
@@ -666,31 +650,14 @@ export const useChatStore = defineStore('chat', () => {
     stopMessageEvents()
     if (!bid) return
 
-    const controller = new AbortController()
-    messageEventsController = controller
-    const version = messageEventsLoopVersion
-
-    const run = async () => {
-      let delay = 1000
-      while (!controller.signal.aborted && messageEventsLoopVersion === version) {
-        try {
-          await streamMessageEvents(
-            bid, controller.signal,
-            (e) => handleStreamEvent(bid, e as unknown as Record<string, unknown>),
-            messageEventsSince || undefined,
-          )
-          delay = 1000
-          if (!controller.signal.aborted && messageEventsLoopVersion === version) {
-            await sleep(300)
-          }
-        } catch {
-          if (controller.signal.aborted || messageEventsLoopVersion !== version) return
-          await sleep(delay)
-          delay = Math.min(delay * 2, 5000)
-        }
-      }
-    }
-    void run()
+    messageEventsStream.start(async (signal) => {
+      await streamMessageEvents(
+        bid,
+        signal,
+        (e) => handleStreamEvent(bid, e as unknown as Record<string, unknown>),
+        messageEventsSince || undefined,
+      )
+    })
   }
 
   // ---- Bot management ----

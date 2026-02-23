@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	attachmentpkg "github.com/memohai/memoh/internal/attachment"
@@ -139,12 +140,18 @@ func (r *Resolver) SetInboxService(service *inbox.Service) {
 
 // --- gateway payload ---
 
+type gatewayReasoningConfig struct {
+	Enabled bool   `json:"enabled"`
+	Effort  string `json:"effort"`
+}
+
 type gatewayModelConfig struct {
-	ModelID    string   `json:"modelId"`
-	ClientType string   `json:"clientType"`
-	Input      []string `json:"input"`
-	APIKey     string   `json:"apiKey"`
-	BaseURL    string   `json:"baseUrl"`
+	ModelID    string                  `json:"modelId"`
+	ClientType string                  `json:"clientType"`
+	Input      []string                `json:"input"`
+	APIKey     string                  `json:"apiKey"`
+	BaseURL    string                  `json:"baseUrl"`
+	Reasoning  *gatewayReasoningConfig `json:"reasoning,omitempty"`
 }
 
 type gatewayIdentity struct {
@@ -382,6 +389,7 @@ func (r *Resolver) resolve(ctx context.Context, req conversation.ChatRequest) (r
 	displayName := r.resolveDisplayName(ctx, req)
 
 	headerifiedQuery := FormatUserHeader(
+		strings.TrimSpace(req.ExternalMessageID),
 		strings.TrimSpace(req.SourceChannelIdentityID),
 		displayName,
 		req.CurrentChannel,
@@ -391,6 +399,14 @@ func (r *Resolver) resolve(ctx context.Context, req conversation.ChatRequest) (r
 		req.Query,
 	)
 
+	var reasoning *gatewayReasoningConfig
+	if chatModel.SupportsReasoning && botSettings.ReasoningEnabled {
+		reasoning = &gatewayReasoningConfig{
+			Enabled: true,
+			Effort:  botSettings.ReasoningEffort,
+		}
+	}
+
 	payload := gatewayRequest{
 		Model: gatewayModelConfig{
 			ModelID:    chatModel.ModelID,
@@ -398,6 +414,7 @@ func (r *Resolver) resolve(ctx context.Context, req conversation.ChatRequest) (r
 			Input:      chatModel.InputModalities,
 			APIKey:     provider.ApiKey,
 			BaseURL:    provider.BaseUrl,
+			Reasoning:  reasoning,
 		},
 		ActiveContextTime: maxCtx,
 		Channels:          nonNilStrings(req.Channels),
@@ -1584,7 +1601,7 @@ func (r *Resolver) selectChatModel(ctx context.Context, req conversation.ChatReq
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
 	for _, m := range candidates {
-		if m.ModelID == modelID {
+		if matchesModelReference(m, modelID) {
 			prov, err := models.FetchProviderByID(ctx, r.queries, m.LlmProviderID)
 			if err != nil {
 				return models.GetResponse{}, sqlc.LlmProvider{}, err
@@ -1596,10 +1613,30 @@ func (r *Resolver) selectChatModel(ctx context.Context, req conversation.ChatReq
 }
 
 func (r *Resolver) fetchChatModel(ctx context.Context, modelID string) (models.GetResponse, sqlc.LlmProvider, error) {
-	model, err := r.modelsService.GetByModelID(ctx, modelID)
+	modelRef := strings.TrimSpace(modelID)
+	if modelRef == "" {
+		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("model id is required")
+	}
+
+	// Support both model UUID and model_id slug. UUID-formatted slugs still
+	// work because we fall back to GetByModelID when UUID lookup misses.
+	var model models.GetResponse
+	var err error
+	if _, parseErr := db.ParseUUID(modelRef); parseErr == nil {
+		model, err = r.modelsService.GetByID(ctx, modelRef)
+		if err == nil {
+			goto resolved
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.GetResponse{}, sqlc.LlmProvider{}, err
+		}
+	}
+	model, err = r.modelsService.GetByModelID(ctx, modelRef)
 	if err != nil {
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
+
+resolved:
 	if model.Type != models.ModelTypeChat {
 		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("model is not a chat model")
 	}
@@ -1608,6 +1645,14 @@ func (r *Resolver) fetchChatModel(ctx context.Context, modelID string) (models.G
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
 	return model, prov, nil
+}
+
+func matchesModelReference(model models.GetResponse, modelRef string) bool {
+	ref := strings.TrimSpace(modelRef)
+	if ref == "" {
+		return false
+	}
+	return model.ID == ref || model.ModelID == ref
 }
 
 func (r *Resolver) listCandidates(ctx context.Context, providerFilter string) ([]models.GetResponse, error) {
@@ -1772,6 +1817,7 @@ func parseResolverUUID(id string) (pgtype.UUID, error) {
 // message. It is the single source of truth shared by the YAML header
 // (sent to the LLM) and the inbox content JSONB.
 type UserMessageMeta struct {
+	MessageID         string   `json:"message-id,omitempty"`
 	ChannelIdentityID string   `json:"channel-identity-id"`
 	DisplayName       string   `json:"display-name"`
 	Channel           string   `json:"channel"`
@@ -1783,11 +1829,12 @@ type UserMessageMeta struct {
 
 // BuildUserMessageMeta constructs a UserMessageMeta from the inbound
 // parameters. Both FormatUserHeader and inbox content use this.
-func BuildUserMessageMeta(channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string) UserMessageMeta {
+func BuildUserMessageMeta(messageID, channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string) UserMessageMeta {
 	if attachmentPaths == nil {
 		attachmentPaths = []string{}
 	}
 	return UserMessageMeta{
+		MessageID:         messageID,
 		ChannelIdentityID: channelIdentityID,
 		DisplayName:       displayName,
 		Channel:           channel,
@@ -1809,6 +1856,9 @@ func (m UserMessageMeta) ToMap() map[string]any {
 		"time":                m.Time,
 		"attachments":         m.AttachmentPaths,
 	}
+	if m.MessageID != "" {
+		result["message-id"] = m.MessageID
+	}
 	if m.ConversationName != "" {
 		result["conversation-name"] = m.ConversationName
 	}
@@ -1819,8 +1869,8 @@ func (m UserMessageMeta) ToMap() map[string]any {
 // the LLM sees structured context (sender, channel, time, attachments)
 // alongside the raw message. This must be the single source of truth for
 // user-message formatting — the agent gateway must NOT add its own header.
-func FormatUserHeader(channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string, query string) string {
-	meta := BuildUserMessageMeta(channelIdentityID, displayName, channel, conversationType, conversationName, attachmentPaths)
+func FormatUserHeader(messageID, channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string, query string) string {
+	meta := BuildUserMessageMeta(messageID, channelIdentityID, displayName, channel, conversationType, conversationName, attachmentPaths)
 	return FormatUserHeaderFromMeta(meta, query)
 }
 
@@ -1829,6 +1879,9 @@ func FormatUserHeader(channelIdentityID, displayName, channel, conversationType,
 func FormatUserHeaderFromMeta(meta UserMessageMeta, query string) string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
+	if meta.MessageID != "" {
+		writeYAMLString(&sb, "message-id", meta.MessageID)
+	}
 	writeYAMLString(&sb, "channel-identity-id", meta.ChannelIdentityID)
 	writeYAMLString(&sb, "display-name", meta.DisplayName)
 	writeYAMLString(&sb, "channel", meta.Channel)

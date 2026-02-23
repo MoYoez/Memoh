@@ -53,6 +53,68 @@ func (s *Service) ListMeta(_ context.Context) []ProviderMeta {
 				},
 			},
 		},
+		{
+			Provider:    string(ProviderBing),
+			DisplayName: "Bing",
+			ConfigSchema: ProviderConfigSchema{
+				Fields: map[string]ProviderFieldSchema{
+					"api_key": {
+						Type:        "secret",
+						Title:       "API Key",
+						Description: "Bing Web Search API subscription key",
+						Required:    true,
+					},
+					"base_url": {
+						Type:        "string",
+						Title:       "Base URL",
+						Description: "Bing API base URL",
+						Required:    false,
+						Example:     "https://api.bing.microsoft.com/v7.0/search",
+					},
+					"timeout_seconds": {
+						Type:        "number",
+						Title:       "Timeout (seconds)",
+						Description: "HTTP timeout in seconds",
+						Required:    false,
+						Example:     15,
+					},
+				},
+			},
+		},
+		{
+			Provider:    string(ProviderGoogle),
+			DisplayName: "Google",
+			ConfigSchema: ProviderConfigSchema{
+				Fields: map[string]ProviderFieldSchema{
+					"api_key": {
+						Type:        "secret",
+						Title:       "API Key",
+						Description: "Google Custom Search API key",
+						Required:    true,
+					},
+					"cx": {
+						Type:        "string",
+						Title:       "Search Engine ID",
+						Description: "Google Programmable Search Engine ID (cx)",
+						Required:    true,
+					},
+					"base_url": {
+						Type:        "string",
+						Title:       "Base URL",
+						Description: "Google Custom Search API base URL",
+						Required:    false,
+						Example:     "https://customsearch.googleapis.com/customsearch/v1",
+					},
+					"timeout_seconds": {
+						Type:        "number",
+						Title:       "Timeout (seconds)",
+						Description: "HTTP timeout in seconds",
+						Required:    false,
+						Example:     15,
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -183,7 +245,7 @@ func (s *Service) toGetResponse(row sqlc.SearchProvider) GetResponse {
 
 func isValidProviderName(name ProviderName) bool {
 	switch name {
-	case ProviderBrave:
+	case ProviderBrave, ProviderBing, ProviderGoogle:
 		return true
 	default:
 		return false

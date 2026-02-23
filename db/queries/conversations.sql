@@ -205,22 +205,17 @@ ON CONFLICT (bot_id, user_id) DO NOTHING;
 -- chat_settings
 
 -- name: UpsertChatSettings :one
-WITH resolved_model AS (
-  SELECT id
-  FROM models
-  WHERE model_id = NULLIF(sqlc.narg(model_id)::text, '')
-  LIMIT 1
-),
+WITH
 updated AS (
   UPDATE bots
-  SET chat_model_id = COALESCE((SELECT id FROM resolved_model), bots.chat_model_id),
+  SET chat_model_id = COALESCE(sqlc.narg(chat_model_id)::uuid, bots.chat_model_id),
       updated_at = now()
   WHERE bots.id = sqlc.arg(id)
   RETURNING bots.id, bots.chat_model_id, bots.updated_at
 )
 SELECT
   updated.id AS chat_id,
-  chat_models.model_id AS model_id,
+  chat_models.id AS model_id,
   updated.updated_at
 FROM updated
 LEFT JOIN models chat_models ON chat_models.id = updated.chat_model_id;
@@ -228,7 +223,7 @@ LEFT JOIN models chat_models ON chat_models.id = updated.chat_model_id;
 -- name: GetChatSettings :one
 SELECT
   b.id AS chat_id,
-  chat_models.model_id AS model_id,
+  chat_models.id AS model_id,
   b.updated_at
 FROM bots b
 LEFT JOIN models chat_models ON chat_models.id = b.chat_model_id

@@ -101,9 +101,19 @@ func (p *Executor) callWebSearch(ctx context.Context, providerName string, confi
 		count = 20
 	}
 
-	if strings.TrimSpace(providerName) != string(searchproviders.ProviderBrave) {
+	switch strings.TrimSpace(providerName) {
+	case string(searchproviders.ProviderBrave):
+		return p.callBraveSearch(ctx, configJSON, query, count)
+	case string(searchproviders.ProviderBing):
+		return p.callBingSearch(ctx, configJSON, query, count)
+	case string(searchproviders.ProviderGoogle):
+		return p.callGoogleSearch(ctx, configJSON, query, count)
+	default:
 		return mcpgw.BuildToolErrorResult("unsupported search provider"), nil
 	}
+}
+
+func (p *Executor) callBraveSearch(ctx context.Context, configJSON []byte, query string, count int) (map[string]any, error) {
 	cfg := parseConfig(configJSON)
 	endpoint := strings.TrimRight(firstNonEmpty(stringValue(cfg["base_url"]), "https://api.search.brave.com/res/v1/web/search"), "/")
 	reqURL, err := url.Parse(endpoint)
@@ -156,6 +166,134 @@ func (p *Executor) callWebSearch(ctx context.Context, providerName string, confi
 			"title":       item.Title,
 			"url":         item.URL,
 			"description": item.Description,
+		})
+	}
+	return mcpgw.BuildToolSuccessResult(map[string]any{
+		"query":   query,
+		"results": results,
+	}), nil
+}
+
+func (p *Executor) callBingSearch(ctx context.Context, configJSON []byte, query string, count int) (map[string]any, error) {
+	cfg := parseConfig(configJSON)
+	endpoint := strings.TrimRight(firstNonEmpty(stringValue(cfg["base_url"]), "https://api.bing.microsoft.com/v7.0/search"), "/")
+	reqURL, err := url.Parse(endpoint)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult("invalid search provider base_url"), nil
+	}
+	params := reqURL.Query()
+	params.Set("q", query)
+	params.Set("count", fmt.Sprintf("%d", count))
+	reqURL.RawQuery = params.Encode()
+
+	timeout := parseTimeout(configJSON, 15*time.Second)
+	client := &http.Client{Timeout: timeout}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	req.Header.Set("Accept", "application/json")
+	apiKey := stringValue(cfg["api_key"])
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", strings.TrimSpace(apiKey))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return mcpgw.BuildToolErrorResult("search request failed"), nil
+	}
+	var raw struct {
+		WebPages struct {
+			Value []struct {
+				Name    string `json:"name"`
+				URL     string `json:"url"`
+				Snippet string `json:"snippet"`
+			} `json:"value"`
+		} `json:"webPages"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return mcpgw.BuildToolErrorResult("invalid search response"), nil
+	}
+	results := make([]map[string]any, 0, len(raw.WebPages.Value))
+	for _, item := range raw.WebPages.Value {
+		results = append(results, map[string]any{
+			"title":       item.Name,
+			"url":         item.URL,
+			"description": item.Snippet,
+		})
+	}
+	return mcpgw.BuildToolSuccessResult(map[string]any{
+		"query":   query,
+		"results": results,
+	}), nil
+}
+
+func (p *Executor) callGoogleSearch(ctx context.Context, configJSON []byte, query string, count int) (map[string]any, error) {
+	cfg := parseConfig(configJSON)
+	endpoint := strings.TrimRight(firstNonEmpty(stringValue(cfg["base_url"]), "https://customsearch.googleapis.com/customsearch/v1"), "/")
+	reqURL, err := url.Parse(endpoint)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult("invalid search provider base_url"), nil
+	}
+	cx := stringValue(cfg["cx"])
+	if cx == "" {
+		return mcpgw.BuildToolErrorResult("Google Custom Search requires cx (Search Engine ID)"), nil
+	}
+	if count > 10 {
+		count = 10
+	}
+	params := reqURL.Query()
+	params.Set("q", query)
+	params.Set("cx", cx)
+	params.Set("num", fmt.Sprintf("%d", count))
+	apiKey := stringValue(cfg["api_key"])
+	if strings.TrimSpace(apiKey) != "" {
+		params.Set("key", strings.TrimSpace(apiKey))
+	}
+	reqURL.RawQuery = params.Encode()
+
+	timeout := parseTimeout(configJSON, 15*time.Second)
+	client := &http.Client{Timeout: timeout}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return mcpgw.BuildToolErrorResult(err.Error()), nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return mcpgw.BuildToolErrorResult("search request failed"), nil
+	}
+	var raw struct {
+		Items []struct {
+			Title   string `json:"title"`
+			Link    string `json:"link"`
+			Snippet string `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return mcpgw.BuildToolErrorResult("invalid search response"), nil
+	}
+	results := make([]map[string]any, 0, len(raw.Items))
+	for _, item := range raw.Items {
+		results = append(results, map[string]any{
+			"title":       item.Title,
+			"url":         item.Link,
+			"description": item.Snippet,
 		})
 	}
 	return mcpgw.BuildToolSuccessResult(map[string]any{

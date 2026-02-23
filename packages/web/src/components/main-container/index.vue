@@ -36,11 +36,11 @@
     </header>
     <Separator />
     <section class="w-full relative">
+      <h1 class="sr-only">
+        {{ currentPageTitle }}
+      </h1>
       <ScrollArea class="absolute! inset-0">
-        <router-view
-          v-slot="{ Component }"
-          class="p-4"
-        >
+        <router-view v-slot="{ Component }">
           <KeepAlive>
             <component :is="Component" />
           </KeepAlive>
@@ -62,7 +62,7 @@ import {
   ScrollArea,
 } from '@memoh/ui'
 import { useRoute } from 'vue-router'
-import { computed } from 'vue'
+import { computed, unref } from 'vue'
 
 const route = useRoute()
 
@@ -76,6 +76,12 @@ const curBreadcrumb = computed(() => {
         breadcrumb: typeof raw === 'function' ? raw(route) : raw,
       }
     })
+})
+
+const currentPageTitle = computed(() => {
+  const last = curBreadcrumb.value[curBreadcrumb.value.length - 1]
+  const title = String(unref(last?.breadcrumb) ?? '').trim()
+  return title || 'Memoh'
 })
 
 </script>

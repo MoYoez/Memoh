@@ -5,7 +5,9 @@ import "time"
 type ProviderName string
 
 const (
-	ProviderBrave ProviderName = "brave"
+	ProviderBrave  ProviderName = "brave"
+	ProviderBing   ProviderName = "bing"
+	ProviderGoogle ProviderName = "google"
 )
 
 type ProviderConfigSchema struct {

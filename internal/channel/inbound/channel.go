@@ -664,6 +664,7 @@ func (p *ChannelInboundProcessor) persistInboundUser(
 		}
 	}
 	headerifiedQuery := flow.FormatUserHeader(
+		strings.TrimSpace(msg.Message.ID),
 		strings.TrimSpace(identity.ChannelIdentityID),
 		strings.TrimSpace(identity.DisplayName),
 		msg.Channel.String(),
@@ -737,6 +738,7 @@ func (p *ChannelInboundProcessor) createInboxItem(
 	}
 
 	meta := flow.BuildUserMessageMeta(
+		strings.TrimSpace(msg.Message.ID),
 		strings.TrimSpace(ident.ChannelIdentityID),
 		displayName,
 		msg.Channel.String(),

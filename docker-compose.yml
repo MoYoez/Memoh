@@ -39,13 +39,7 @@ services:
       - memoh-network
 
   migrate:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
-      args:
-        - VERSION=${MEMOH_VERSION:-dev}
-        - COMMIT_HASH=${MEMOH_COMMIT:-unknown}
-        - BUILD_TIME=${MEMOH_BUILD_TIME:-unknown}
+    image: memohai/server:latest
     container_name: memoh-migrate
     entrypoint: ["/app/memoh-server", "migrate", "up"]
     volumes:
@@ -58,13 +52,7 @@ services:
       - memoh-network
 
   server:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
-      args:
-        - VERSION=${MEMOH_VERSION:-dev}
-        - COMMIT_HASH=${MEMOH_COMMIT:-unknown}
-        - BUILD_TIME=${MEMOH_BUILD_TIME:-unknown}
+    image: memohai/server:latest
     container_name: memoh-server
     privileged: true
     pid: host
@@ -86,9 +74,7 @@ services:
       - memoh-network
 
   agent:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.agent
+    image: memohai/agent:latest
     container_name: memoh-agent
     volumes:
       - ${MEMOH_CONFIG:-./conf/app.docker.toml}:/config.toml:ro
@@ -102,12 +88,7 @@ services:
       - memoh-network
 
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        - VITE_API_URL=${VITE_API_URL:-/api}
-        - VITE_AGENT_URL=${VITE_AGENT_URL:-/agent}
+    image: memohai/web:latest
     container_name: memoh-web
     ports:
       - "8082:8082"

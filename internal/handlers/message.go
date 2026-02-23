@@ -315,7 +315,17 @@ func (h *MessageHandler) StreamMessageEvents(c echo.Context) error {
 	}
 }
 
-// DeleteMessages clears all persisted bot-level history messages.
+// DeleteMessages godoc
+// @Summary Delete all bot history messages
+// @Description Clear all persisted bot-level history messages
+// @Tags messages
+// @Produce json
+// @Param bot_id path string true "Bot ID"
+// @Success 204 "No Content"
+// @Failure 400 {object} ErrorResponse
+// @Failure 403 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /bots/{bot_id}/messages [delete]
 func (h *MessageHandler) DeleteMessages(c echo.Context) error {
 	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {

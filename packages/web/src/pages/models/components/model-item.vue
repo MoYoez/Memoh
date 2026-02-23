@@ -1,7 +1,7 @@
 <template>
   <Item variant="outline">
     <ItemContent>
-      <ItemTitle>{{ model.name }}</ItemTitle>
+      <ItemTitle>{{ model.name || model.model_id }}</ItemTitle>
       <ItemDescription class="gap-2 flex flex-wrap items-center mt-3">
         <Badge variant="outline">
           {{ model.type }}
@@ -16,8 +16,10 @@
     </ItemContent>
     <ItemActions>
       <Button
+        type="button"
         variant="outline"
         class="cursor-pointer"
+        :aria-label="$t('common.edit')"
         @click="$emit('edit', model)"
       >
         <FontAwesomeIcon :icon="['fas', 'gear']" />
@@ -26,10 +28,14 @@
       <ConfirmPopover
         :message="$t('models.deleteModelConfirm')"
         :loading="deleteLoading"
-        @confirm="$emit('delete', model.name)"
+        @confirm="$emit('delete', model.id ?? '')"
       >
         <template #trigger>
-          <Button variant="outline">
+          <Button
+            type="button"
+            variant="outline"
+            :aria-label="$t('common.delete')"
+          >
             <FontAwesomeIcon :icon="['far', 'trash-can']" />
           </Button>
         </template>
@@ -58,6 +64,6 @@ defineProps<{
 
 defineEmits<{
   edit: [model: ModelsGetResponse]
-  delete: [name: string]
+  delete: [id: string]
 }>()
 </script>

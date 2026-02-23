@@ -33,7 +33,7 @@ import ProviderForm from './components/provider-form.vue'
 import ModelList from './components/model-list.vue'
 import { computed, inject, provide, reactive, ref, toRef, watch } from 'vue'
 import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
-import { putProvidersById, deleteProvidersById, getProvidersByIdModels, deleteModelsModelByModelId } from '@memoh/sdk'
+import { putProvidersById, deleteProvidersById, getProvidersByIdModels, deleteModelsById } from '@memoh/sdk'
 import type { ModelsGetResponse, ProvidersGetResponse } from '@memoh/sdk'
 
 // ---- Model 编辑状态（provide 给 CreateModel） ----
@@ -86,8 +86,9 @@ const { mutate: changeProvider, isLoading: editLoading } = useMutation({
 })
 
 const { mutate: deleteModel, isLoading: deleteModelLoading } = useMutation({
-  mutation: async (modelName: string) => {
-    await deleteModelsModelByModelId({ path: { modelId: modelName }, throwOnError: true })
+  mutation: async (modelID: string) => {
+    if (!modelID) return
+    await deleteModelsById({ path: { id: modelID }, throwOnError: true })
   },
   onSettled: () => queryCache.invalidateQueries({ key: ['provider-models'] }),
 })

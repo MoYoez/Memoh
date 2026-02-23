@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -20,6 +21,7 @@ var (
 	ErrChatNotFound     = errors.New("chat not found")
 	ErrNotParticipant   = errors.New("not a participant")
 	ErrPermissionDenied = errors.New("permission denied")
+	ErrModelIDAmbiguous = errors.New("model_id is ambiguous across providers")
 )
 
 // Service manages conversation lifecycle, participants, and settings.
@@ -310,21 +312,26 @@ func (s *Service) GetSettings(ctx context.Context, conversationID string) (Setti
 
 // UpdateSettings updates conversation settings.
 func (s *Service) UpdateSettings(ctx context.Context, conversationID string, req UpdateSettingsRequest) (Settings, error) {
-	current, err := s.GetSettings(ctx, conversationID)
-	if err != nil {
-		return Settings{}, err
-	}
-	if req.ModelID != nil {
-		current.ModelID = *req.ModelID
-	}
-
 	pgID, err := parseUUID(conversationID)
 	if err != nil {
 		return Settings{}, err
 	}
+
+	chatModelUUID := pgtype.UUID{}
+	if req.ModelID != nil {
+		modelRef := strings.TrimSpace(*req.ModelID)
+		if modelRef != "" {
+			resolved, err := s.resolveModelUUID(ctx, modelRef)
+			if err != nil {
+				return Settings{}, err
+			}
+			chatModelUUID = resolved
+		}
+	}
+
 	row, err := s.queries.UpsertChatSettings(ctx, sqlc.UpsertChatSettingsParams{
-		ID:      pgID,
-		ModelID: toPgText(current.ModelID),
+		ID:          pgID,
+		ChatModelID: chatModelUUID,
 	})
 	if err != nil {
 		return Settings{}, err
@@ -427,17 +434,23 @@ func toParticipantFields(conversationID, userID pgtype.UUID, role string, joined
 }
 
 func toSettingsFromRead(row sqlc.GetChatSettingsRow) Settings {
-	return Settings{
-		ChatID:  row.ChatID.String(),
-		ModelID: dbpkg.TextToString(row.ModelID),
+	settings := Settings{
+		ChatID: row.ChatID.String(),
 	}
+	if row.ModelID.Valid {
+		settings.ModelID = uuid.UUID(row.ModelID.Bytes).String()
+	}
+	return settings
 }
 
 func toSettingsFromUpsert(row sqlc.UpsertChatSettingsRow) Settings {
-	return Settings{
-		ChatID:  row.ChatID.String(),
-		ModelID: dbpkg.TextToString(row.ModelID),
+	settings := Settings{
+		ChatID: row.ChatID.String(),
 	}
+	if row.ModelID.Valid {
+		settings.ModelID = uuid.UUID(row.ModelID.Bytes).String()
+	}
+	return settings
 }
 
 func defaultSettings(conversationID string) Settings {
@@ -450,12 +463,32 @@ func parseUUID(id string) (pgtype.UUID, error) {
 	return dbpkg.ParseUUID(id)
 }
 
-func toPgText(s string) pgtype.Text {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return pgtype.Text{}
+func (s *Service) resolveModelUUID(ctx context.Context, modelRef string) (pgtype.UUID, error) {
+	modelRef = strings.TrimSpace(modelRef)
+	if modelRef == "" {
+		return pgtype.UUID{}, fmt.Errorf("model_id is required")
 	}
-	return pgtype.Text{String: s, Valid: true}
+
+	// Prefer UUID path; if not found, fall back to model_id slug.
+	if parsed, err := dbpkg.ParseUUID(modelRef); err == nil {
+		if _, err := s.queries.GetModelByID(ctx, parsed); err == nil {
+			return parsed, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return pgtype.UUID{}, err
+		}
+	}
+
+	rows, err := s.queries.ListModelsByModelID(ctx, modelRef)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	if len(rows) == 0 {
+		return pgtype.UUID{}, fmt.Errorf("model not found: %s", modelRef)
+	}
+	if len(rows) > 1 {
+		return pgtype.UUID{}, fmt.Errorf("%w: %s", ErrModelIDAmbiguous, modelRef)
+	}
+	return rows[0].ID, nil
 }
 
 func pgTimePtr(ts pgtype.Timestamptz) *time.Time {
