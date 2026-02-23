@@ -181,7 +181,7 @@ func (s *Service) Test(ctx context.Context, id string) (TestResponse, error) {
 	baseURL := strings.TrimRight(provider.BaseUrl, "/")
 	apiKey := provider.ApiKey
 
-	resp := TestResponse{Checks: make(map[string]CheckResult, 6)}
+	resp := TestResponse{Checks: make(map[string]CheckResult, 5)}
 
 	// Connectivity check
 	start := time.Now()
@@ -216,9 +216,6 @@ func (s *Service) Test(ctx context.Context, id string) (TestResponse, error) {
 		}},
 		{"embedding", func() CheckResult {
 			return probeEmbedding(ctx, baseURL, apiKey)
-		}},
-		{"openai-completions-models-output", func() CheckResult {
-			return probeOpenAICompletionsModelsOutput(ctx, baseURL, apiKey)
 		}},
 	}
 
@@ -257,12 +254,10 @@ func probeReachable(ctx context.Context, baseURL string) (bool, string) {
 }
 
 func probeOpenAICompletions(ctx context.Context, baseURL, apiKey string) CheckResult {
-	body := `{"model":"probe-test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}`
-	return probeEndpoint(ctx, http.MethodPost, baseURL+"/chat/completions",
+	return probeEndpoint(ctx, http.MethodGet, baseURL+"/models",
 		map[string]string{
 			"Authorization": "Bearer " + apiKey,
-			"Content-Type":  "application/json",
-		}, body)
+		}, "")
 }
 
 func probeOpenAIResponses(ctx context.Context, baseURL, apiKey string) CheckResult {
@@ -298,14 +293,6 @@ func probeEmbedding(ctx context.Context, baseURL, apiKey string) CheckResult {
 			"Authorization": "Bearer " + apiKey,
 			"Content-Type":  "application/json",
 		}, body)
-}
-
-func probeOpenAICompletionsModelsOutput(ctx context.Context, baseURL, apiKey string) CheckResult {
-	return probeEndpoint(ctx, http.MethodGet, baseURL+"/models",
-		map[string]string{
-			"Authorization": "Bearer " + apiKey,
-			"Content-Type":  "application/json",
-		}, "")
 }
 
 func probeEndpoint(ctx context.Context, method, url string, headers map[string]string, body string) CheckResult {
